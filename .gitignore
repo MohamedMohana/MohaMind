@@ -1,0 +1,43 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment & Secrets
+.env
+credentials/
+*.token
+*_token.json
+
+# Memory (private data - keep templates, ignore personal logs)
+memory/daily_log/*.md
+memory/notes/*.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.zed/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# UV
+.python-version

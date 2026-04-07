@@ -1,0 +1,502 @@
+"""MohaMind Agent Core - The conversation engine.
+
+Handles the main LLM conversation loop with tool calling.
+Uses z.ai (Zhipu GLM) as primary brain via OpenAI-compatible API,
+with OpenAI as fallback.
+"""
+
+import json
+from typing import Awaitable, Callable
+
+from openai import AsyncOpenAI
+
+from moha_mind.agent.connected_memory import ConnectedMemory
+from moha_mind.agent.energy_tracker import EnergyTracker
+from moha_mind.agent.memory import MemoryManager
+from moha_mind.agent.system_prompt import build_system_prompt
+from moha_mind.config import settings
+from moha_mind.utils.logging_config import log
+
+
+class MohaMindAgent:
+    def __init__(self, memory: MemoryManager):
+        self.memory = memory
+        self.connected_memory = ConnectedMemory(memory)
+        self.energy_tracker = EnergyTracker(memory)
+
+        llm_config = settings.active_llm_config
+        self.client = AsyncOpenAI(
+            api_key=llm_config["api_key"],
+            base_url=llm_config.get("base_url"),
+        )
+        self.model = llm_config["model"]
+
+        self.conversations: dict[str, list[dict]] = {}
+        self._tool_handlers: dict[str, Callable[..., Awaitable[str]]] = {}
+
+    def register_tool(self, name: str, handler: Callable[..., Awaitable[str]]) -> None:
+        """Register an external tool handler (from MCP servers)."""
+        self._tool_handlers[name] = handler
+        log.info(f"Tool registered: {name}")
+
+    def get_tools_schema(self) -> list[dict]:
+        """Get the JSON schema for all available tools (OpenAI function calling format)."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "save_memory",
+                    "description": (
+                        "Save information to a memory category. "
+                        "Categories: profile, family, tasks, occasions, vehicle, finances, "
+                        "health, home, documents, travel, learning, shopping, relationships, energy_log"
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "description": "Memory category to save to",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Content to save",
+                            },
+                        },
+                        "required": ["category", "content"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_memory",
+                    "description": "Search across all memory files for information",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query",
+                            },
+                            "categories": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Optional: specific categories to search",
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "add_task",
+                    "description": "Add a new task to the task list",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "description": "Task description",
+                            },
+                            "priority": {
+                                "type": "string",
+                                "enum": ["high", "medium", "low"],
+                                "description": "Task priority",
+                            },
+                            "due": {
+                                "type": "string",
+                                "description": "Due date in YYYY-MM-DD format",
+                            },
+                        },
+                        "required": ["text"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "complete_task",
+                    "description": "Mark a task as completed",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "task_text": {
+                                "type": "string",
+                                "description": "Description of the task to complete",
+                            },
+                        },
+                        "required": ["task_text"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_tasks",
+                    "description": "List all active (incomplete) tasks",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_expiring",
+                    "description": (
+                        "Get items expiring within a given number of days (documents, insurance, subscriptions, etc.)"
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "days": {
+                                "type": "integer",
+                                "description": "Number of days to look ahead (default 90)",
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_calendar_events",
+                    "description": "Get today's calendar events from Google and Microsoft calendars",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "days_ahead": {
+                                "type": "integer",
+                                "description": "Number of days ahead to check (default 1 for today)",
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "append_to_section",
+                    "description": "Append a line to a specific section in a memory file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "description": "Memory category",
+                            },
+                            "section": {
+                                "type": "string",
+                                "description": "Section header (without ##)",
+                            },
+                            "line": {
+                                "type": "string",
+                                "description": "Line to append",
+                            },
+                        },
+                        "required": ["category", "section", "line"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "save_note",
+                    "description": "Save a quick note to the notes folder",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Note title",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Note content",
+                            },
+                        },
+                        "required": ["title", "content"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "save_daily_log",
+                    "description": "Save a daily log entry summarizing conversations or activities",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "summary": {
+                                "type": "string",
+                                "description": "Summary text to log",
+                            },
+                        },
+                        "required": ["summary"],
+                    },
+                },
+            },
+        ]
+
+    async def handle_tool_call(self, tool_name: str, arguments: dict) -> str:
+        """Handle a tool call from the LLM."""
+        if tool_name in self._tool_handlers:
+            try:
+                return await self._tool_handlers[tool_name](**arguments)
+            except Exception as e:
+                log.error(f"External tool '{tool_name}' failed: {e}")
+                return f"Error calling {tool_name}: {str(e)}"
+
+        try:
+            match tool_name:
+                case "save_memory":
+                    self.memory.write(arguments["category"], arguments["content"])
+                    connections = self.connected_memory.process_new_info(arguments["content"])
+                    extra = ""
+                    if connections:
+                        extra = " | Connected: " + "; ".join(connections)
+                    return f"Saved to {arguments['category']}{extra}"
+
+                case "search_memory":
+                    results = self.memory.search(
+                        arguments["query"],
+                        arguments.get("categories"),
+                    )
+                    if not results:
+                        return "No results found"
+                    return "\n".join(f"[{r['category']}:{r['line_number']}] {r['context']}" for r in results[:10])
+
+                case "add_task":
+                    self.memory.add_task(
+                        text=arguments["text"],
+                        priority=arguments.get("priority", "medium"),
+                        due=arguments.get("due"),
+                    )
+                    connections = self.connected_memory.process_new_info(arguments["text"])
+                    return f"Task added: {arguments['text']}"
+
+                case "complete_task":
+                    success = self.memory.complete_task(arguments["task_text"])
+                    return "Task completed!" if success else "Task not found"
+
+                case "list_tasks":
+                    tasks = self.memory.get_task_section()
+                    active = [t for t in tasks if not t["done"]]
+                    if not active:
+                        return "No active tasks"
+                    return "\n".join(
+                        f"- [{t['priority'].upper()}] {t['text']}" + (f" (due {t['due']})" if t["due"] else "")
+                        for t in active
+                    )
+
+                case "get_expiring":
+                    items = self.memory.get_expiring_items(arguments.get("days", 90))
+                    if not items:
+                        return "Nothing expiring soon"
+                    return "\n".join(f"- [{i['days_left']}d] {i['detail']}" for i in items)
+
+                case "append_to_section":
+                    self.memory.append_to_section(
+                        arguments["category"],
+                        arguments["section"],
+                        arguments["line"],
+                    )
+                    return f"Added to {arguments['category']} > {arguments['section']}"
+
+                case "save_note":
+                    path = self.memory.save_note(arguments["title"], arguments["content"])
+                    return f"Note saved: {path.name}"
+
+                case "save_daily_log":
+                    self.memory.save_daily_log(arguments["summary"])
+                    return "Daily log updated"
+
+                case "get_calendar_events":
+                    if "get_calendar_events" in self._tool_handlers:
+                        return await self._tool_handlers["get_calendar_events"](**arguments)
+                    return "Calendar integration not configured yet"
+
+                case _:
+                    return f"Unknown tool: {tool_name}"
+
+        except Exception as e:
+            log.error(f"Tool '{tool_name}' execution failed: {e}")
+            return f"Error: {str(e)}"
+
+    def _get_conversation(self, chat_id: str) -> list[dict]:
+        """Get or create conversation history for a chat."""
+        if chat_id not in self.conversations:
+            self.conversations[chat_id] = []
+        return self.conversations[chat_id]
+
+    async def chat(self, message: str, chat_id: str = "default") -> str:
+        """Main conversation method. Process a user message and return a response."""
+        conversation = self._get_conversation(chat_id)
+        system_prompt = build_system_prompt(self.memory)
+
+        conversation.append({"role": "user", "content": message})
+
+        self.energy_tracker.log_interaction(message, 0)
+
+        max_tool_rounds = 5
+        final_response = ""
+
+        for round_num in range(max_tool_rounds):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        *conversation[-20:],
+                    ],
+                    tools=self.get_tools_schema(),
+                    tool_choice="auto",
+                    max_tokens=1500,
+                    temperature=0.7,
+                )
+            except Exception as e:
+                log.error(f"LLM API error: {e}")
+                if "zai" in settings.primary_llm and settings.openai_api_key:
+                    log.info("Falling back to OpenAI...")
+                    self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+                    self.model = settings.openai_model
+                    try:
+                        response = await self.client.chat.completions.create(
+                            model=self.model,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                *conversation[-20:],
+                            ],
+                            tools=self.get_tools_schema(),
+                            tool_choice="auto",
+                            max_tokens=1500,
+                            temperature=0.7,
+                        )
+                    except Exception as e2:
+                        log.error(f"OpenAI fallback also failed: {e2}")
+                        return "I'm having trouble connecting right now. Please try again in a moment."
+                else:
+                    return "I'm having trouble connecting right now. Please try again in a moment."
+
+            choice = response.choices[0]
+            assistant_message = choice.message
+
+            if assistant_message.tool_calls:
+                conversation.append(assistant_message.model_dump())
+
+                for tool_call in assistant_message.tool_calls:
+                    func_name = tool_call.function.name
+                    try:
+                        func_args = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError:
+                        func_args = {}
+
+                    log.info(f"Tool call: {func_name}({func_args})")
+                    tool_result = await self.handle_tool_call(func_name, func_args)
+
+                    conversation.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": tool_result,
+                        }
+                    )
+            else:
+                final_response = assistant_message.content or ""
+                conversation.append({"role": "assistant", "content": final_response})
+                break
+
+        if len(conversation) > 50:
+            self.conversations[chat_id] = conversation[-30:]
+
+        self.energy_tracker.log_interaction(message, len(final_response))
+        return final_response
+
+    async def generate_briefing(self) -> str:
+        """Generate the morning briefing without tool calls - just a direct LLM response."""
+        system_prompt = build_system_prompt(
+            self.memory, extra_context="MODE: Morning Briefing - Generate a comprehensive daily briefing"
+        )
+        briefing_request = (
+            "Generate my morning briefing for today. Include: calendar events, "
+            "priority tasks, expiring items, weather-appropriate suggestions, "
+            "and any connected insights. Be warm, concise, and organized."
+        )
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": briefing_request},
+                ],
+                tools=self.get_tools_schema(),
+                tool_choice="auto",
+                max_tokens=2000,
+                temperature=0.7,
+            )
+
+            choice = response.choices[0]
+            if choice.message.tool_calls:
+                conversation = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": briefing_request},
+                    choice.message.model_dump(),
+                ]
+                for tool_call in choice.message.tool_calls:
+                    func_name = tool_call.function.name
+                    func_args = json.loads(tool_call.function.arguments)
+                    tool_result = await self.handle_tool_call(func_name, func_args)
+                    conversation.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": tool_result,
+                        }
+                    )
+
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=conversation,
+                    tools=self.get_tools_schema(),
+                    tool_choice="auto",
+                    max_tokens=2000,
+                    temperature=0.7,
+                )
+                return response.choices[0].message.content or ""
+
+            return choice.message.content or ""
+
+        except Exception as e:
+            log.error(f"Briefing generation failed: {e}")
+            return f"Good morning! I had trouble generating your full briefing today. Error: {e}"
+
+    async def generate_weekly_review(self) -> str:
+        """Generate the weekly life review."""
+        system_prompt = build_system_prompt(self.memory, extra_context="MODE: Weekly Life Review")
+        review_request = (
+            "Generate my weekly life review. Include: tasks completed vs missed, "
+            "patterns you noticed, finance summary, health habits, social connections, "
+            "and suggestions for next week. Be constructive and encouraging."
+        )
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": review_request},
+                ],
+                tools=self.get_tools_schema(),
+                tool_choice="auto",
+                max_tokens=2500,
+                temperature=0.7,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            log.error(f"Weekly review generation failed: {e}")
+            return "Weekly review generation failed. I'll try again next week."
