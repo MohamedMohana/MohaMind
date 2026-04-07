@@ -5,6 +5,17 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LLM_PROVIDERS = {
+    "zai": {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+        "default_model": "glm-4-plus",
+    },
+    "openai": {
+        "base_url": None,
+        "default_model": "gpt-4o-mini",
+    },
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -21,6 +32,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     primary_llm: Literal["zai", "openai"] = "zai"
+
+    fallback_llm: Literal["zai", "openai", "none"] = "openai"
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
@@ -53,12 +66,41 @@ class Settings(BaseSettings):
                 "api_key": self.zai_api_key,
                 "model": self.zai_model,
                 "base_url": self.zai_base_url,
+                "provider": "zai",
+            }
+        if self.openai_api_key:
+            return {
+                "api_key": self.openai_api_key,
+                "model": self.openai_model,
+                "base_url": None,
+                "provider": "openai",
             }
         return {
-            "api_key": self.openai_api_key,
-            "model": self.openai_model,
-            "base_url": None,
+            "api_key": self.zai_api_key or "missing-key",
+            "model": self.zai_model,
+            "base_url": self.zai_base_url,
+            "provider": "zai",
         }
+
+    @property
+    def fallback_llm_config(self) -> dict | None:
+        if self.fallback_llm == "none":
+            return None
+        if self.fallback_llm == "openai" and self.openai_api_key:
+            return {
+                "api_key": self.openai_api_key,
+                "model": self.openai_model,
+                "base_url": None,
+                "provider": "openai",
+            }
+        if self.fallback_llm == "zai" and self.zai_api_key:
+            return {
+                "api_key": self.zai_api_key,
+                "model": self.zai_model,
+                "base_url": self.zai_base_url,
+                "provider": "zai",
+            }
+        return None
 
 
 settings = Settings()

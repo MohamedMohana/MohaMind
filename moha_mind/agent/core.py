@@ -1,8 +1,8 @@
 """MohaMind Agent Core - The conversation engine.
 
 Handles the main LLM conversation loop with tool calling.
-Uses z.ai (Zhipu GLM) as primary brain via OpenAI-compatible API,
-with OpenAI as fallback.
+Supports z.ai (Zhipu GLM), OpenAI, and automatic fallback.
+All providers use the OpenAI-compatible API format.
 """
 
 import json
@@ -30,9 +30,12 @@ class MohaMindAgent:
             base_url=llm_config.get("base_url"),
         )
         self.model = llm_config["model"]
+        self.provider = llm_config.get("provider", "unknown")
 
         self.conversations: dict[str, list[dict]] = {}
         self._tool_handlers: dict[str, Callable[..., Awaitable[str]]] = {}
+
+        log.info(f"Agent initialized with {self.provider} (model: {self.model})")
 
     def register_tool(self, name: str, handler: Callable[..., Awaitable[str]]) -> None:
         """Register an external tool handler (from MCP servers)."""
@@ -333,6 +336,20 @@ class MohaMindAgent:
             self.conversations[chat_id] = []
         return self.conversations[chat_id]
 
+    def _switch_to_fallback(self) -> bool:
+        """Switch to fallback LLM if available. Returns True if switched."""
+        fallback = settings.fallback_llm_config
+        if not fallback:
+            return False
+        self.client = AsyncOpenAI(
+            api_key=fallback["api_key"],
+            base_url=fallback.get("base_url"),
+        )
+        self.model = fallback["model"]
+        self.provider = fallback.get("provider", "fallback")
+        log.info(f"Switched to fallback LLM: {self.provider} ({self.model})")
+        return True
+
     async def chat(self, message: str, chat_id: str = "default") -> str:
         """Main conversation method. Process a user message and return a response."""
         conversation = self._get_conversation(chat_id)
@@ -359,11 +376,8 @@ class MohaMindAgent:
                     temperature=0.7,
                 )
             except Exception as e:
-                log.error(f"LLM API error: {e}")
-                if "zai" in settings.primary_llm and settings.openai_api_key:
-                    log.info("Falling back to OpenAI...")
-                    self.client = AsyncOpenAI(api_key=settings.openai_api_key)
-                    self.model = settings.openai_model
+                log.error(f"{self.provider} API error: {e}")
+                if self._switch_to_fallback():
                     try:
                         response = await self.client.chat.completions.create(
                             model=self.model,
@@ -377,7 +391,7 @@ class MohaMindAgent:
                             temperature=0.7,
                         )
                     except Exception as e2:
-                        log.error(f"OpenAI fallback also failed: {e2}")
+                        log.error(f"Fallback ({self.provider}) also failed: {e2}")
                         return "I'm having trouble connecting right now. Please try again in a moment."
                 else:
                     return "I'm having trouble connecting right now. Please try again in a moment."
