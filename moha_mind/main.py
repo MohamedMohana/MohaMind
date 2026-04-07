@@ -1,10 +1,12 @@
 """MohaMind - Main entry point.
 
 Starts the Telegram bot, MCP servers, and scheduler all in one process.
+Also supports an interactive CLI mode.
 """
 
 import asyncio
 import signal
+import sys
 from pathlib import Path
 
 from moha_mind.agent.core import MohaMindAgent
@@ -119,10 +121,40 @@ async def main() -> None:
     log.info("MohaMind stopped. Goodbye!")
 
 
+async def main_cli() -> None:
+    """Interactive CLI mode."""
+    memory, agent, bot, scheduler = await bootstrap()
+
+    scheduler.start()
+    log.info("Scheduler started (background)")
+
+    from moha_mind.cli.app import MohaMindCLI
+
+    cli = MohaMindCLI(memory, agent)
+
+    bot_task = asyncio.create_task(bot.start())
+
+    try:
+        await cli.run()
+    finally:
+        scheduler.stop()
+        await bot.stop()
+        bot_task.cancel()
+        try:
+            await bot_task
+        except asyncio.CancelledError:
+            pass
+
+
 def run() -> None:
     """Synchronous entry point for uv/pip script."""
+    cli_mode = "--cli" in sys.argv or "-i" in sys.argv
+
     try:
-        asyncio.run(main())
+        if cli_mode:
+            asyncio.run(main_cli())
+        else:
+            asyncio.run(main())
     except KeyboardInterrupt:
         log.info("MohaMind interrupted by user")
 
