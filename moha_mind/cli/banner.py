@@ -42,7 +42,7 @@ def _render_brain(mood: str = "neutral") -> Text:
     lines = []
     for i, line in enumerate(NEURAL_NODES):
         color = colors[i % len(colors)]
-        lines.append(Text(line, style={"color": color, "bold": True}))
+        lines.append(Text(line, style=f"bold {color}"))
     return Text("\n").join(lines)
 
 
