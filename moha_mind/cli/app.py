@@ -39,7 +39,6 @@ class MohaMindCLI:
         self.energy = EnergyTracker(memory)
         self.console = Console()
         self.registry = CommandRegistry()
-        self.input = InputHandler()
         self.spinner: NeuralPulse | None = None
         self._running = False
 

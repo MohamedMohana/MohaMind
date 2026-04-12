@@ -40,8 +40,8 @@ async def bootstrap() -> tuple[MemoryManager, MohaMindAgent, MohaMindBot, Schedu
     memory_server = MemoryStoreServer(memory)
     task_server = TaskServer(memory)
     life_server = LifeTrackerServer(memory)
-    FamilyServer(memory)
-    SocialServer(memory)
+    family_server = FamilyServer(memory)
+    social_server = SocialServer(memory)
 
     agent.register_tool("save_memory", memory_server._save)
     agent.register_tool("search_memory", memory_server._search)
@@ -52,6 +52,17 @@ async def bootstrap() -> tuple[MemoryManager, MohaMindAgent, MohaMindBot, Schedu
     agent.register_tool("append_to_section", memory_server._append_to_section)
     agent.register_tool("save_note", memory_server._save_note)
     agent.register_tool("save_daily_log", memory_server._save_daily_log)
+    agent.register_tool("family_add_appointment", family_server._add_appointment)
+    agent.register_tool("family_get_upcoming", family_server._get_upcoming)
+    agent.register_tool("family_update_pregnancy_week", family_server._update_pregnancy_week)
+    agent.register_tool("family_add_kid_event", family_server._add_kid_event)
+    agent.register_tool("family_add_vaccination", family_server._add_vaccination)
+    agent.register_tool("family_get_vaccination_schedule", family_server._get_vaccination_schedule)
+    agent.register_tool("social_add_person", social_server._add_person)
+    agent.register_tool("social_log_contact", social_server._log_contact)
+    agent.register_tool("social_get_neglected", social_server._get_neglected)
+    agent.register_tool("social_add_gift_idea", social_server._add_gift_idea)
+    agent.register_tool("social_get_upcoming_birthdays", social_server._get_upcoming_birthdays)
 
     try:
         from moha_mind.mcp_servers.google_calendar.server import GoogleCalendarServer

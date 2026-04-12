@@ -56,12 +56,12 @@ class SchedulerJobs:
 
         self.scheduler.add_job(
             self.expiry_guardian.check_and_alert,
-            CronTrigger(hour=hour + 1, minute=0, timezone=tz),
+            CronTrigger(hour=(hour + 1) % 24, minute=0, timezone=tz),
             id="expiry_guardian",
             name="Expiry Guardian",
             replace_existing=True,
         )
-        log.info(f"Scheduled: Expiry Guardian at {hour + 1:02d}:00 {tz}")
+        log.info(f"Scheduled: Expiry Guardian at {(hour + 1) % 24:02d}:00 {tz}")
 
         self.scheduler.add_job(
             self.reminder_engine.check_and_remind,

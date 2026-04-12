@@ -1,0 +1,102 @@
+"""Comprehensive tests for scheduler components."""
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from moha_mind.scheduler.expiry_guardian import ExpiryGuardian
+from moha_mind.scheduler.reminder_engine import ReminderEngine
+from moha_mind.scheduler.social_pulse import SocialPulse
+
+
+def _make_mock_bot():
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    return bot
+
+
+class TestExpiryGuardianExtended:
+    @pytest.mark.asyncio
+    async def test_no_alerts_when_empty(self, tmp_memory):
+        bot = _make_mock_bot()
+        guardian = ExpiryGuardian(tmp_memory, bot)
+        await guardian.check_and_alert()
+        bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_alert_with_items(self, tmp_memory):
+        tmp_memory.write(
+            "documents",
+            "# Documents\n## Other Documents\n- Passport: A123 - Expires: 2026-04-13\n",
+        )
+        bot = _make_mock_bot()
+        guardian = ExpiryGuardian(tmp_memory, bot)
+        await guardian.check_and_alert()
+        bot.send_message.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_no_alerts_for_far_future(self, tmp_memory):
+        tmp_memory.write(
+            "documents",
+            "# Documents\n## Other Documents\n- Passport: A123 - Expires: 2099-01-01\n",
+        )
+        bot = _make_mock_bot()
+        guardian = ExpiryGuardian(tmp_memory, bot)
+        await guardian.check_and_alert()
+        bot.send_message.assert_not_called()
+
+
+class TestReminderEngineExtended:
+    @pytest.mark.asyncio
+    async def test_no_reminders_when_empty(self, tmp_memory):
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        await engine.check_and_remind()
+        bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sent_reminders_dedup(self, tmp_memory):
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        assert len(engine._sent_reminders) == 0
+        engine._sent_reminders.add("test_key")
+        assert "test_key" in engine._sent_reminders
+
+    @pytest.mark.asyncio
+    async def test_pruning_at_threshold(self, tmp_memory):
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        for i in range(250):
+            engine._sent_reminders.add(f"key_{i}")
+        assert len(engine._sent_reminders) == 250
+
+
+class TestSocialPulseExtended:
+    @pytest.mark.asyncio
+    async def test_no_nudges_when_empty(self, tmp_memory):
+        bot = _make_mock_bot()
+        pulse = SocialPulse(tmp_memory, bot)
+        await pulse.check_and_nudge()
+        bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_nudges_recent_contact(self, tmp_memory):
+        tmp_memory.write(
+            "relationships",
+            "### Ahmed\n- Last contacted: 2026-04-07\n- Contact frequency: monthly\n",
+        )
+        bot = _make_mock_bot()
+        pulse = SocialPulse(tmp_memory, bot)
+        await pulse.check_and_nudge()
+        bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_nudge_overdue_contact(self, tmp_memory):
+        tmp_memory.write(
+            "relationships",
+            "### Ahmed\n- Last contacted: 2025-01-01\n- Contact frequency: monthly\n",
+        )
+        bot = _make_mock_bot()
+        pulse = SocialPulse(tmp_memory, bot)
+        await pulse.check_and_nudge()
+        bot.send_message.assert_called()

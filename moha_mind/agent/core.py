@@ -463,7 +463,10 @@ class MohaMindAgent:
                 ]
                 for tool_call in choice.message.tool_calls:
                     func_name = tool_call.function.name
-                    func_args = json.loads(tool_call.function.arguments)
+                    try:
+                        func_args = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError:
+                        func_args = {}
                     tool_result = await self.handle_tool_call(func_name, func_args)
                     conversation.append(
                         {
@@ -510,7 +513,40 @@ class MohaMindAgent:
                 max_tokens=2500,
                 temperature=0.7,
             )
-            return response.choices[0].message.content or ""
+
+            choice = response.choices[0]
+            if choice.message.tool_calls:
+                conversation = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": review_request},
+                    choice.message.model_dump(),
+                ]
+                for tool_call in choice.message.tool_calls:
+                    func_name = tool_call.function.name
+                    try:
+                        func_args = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError:
+                        func_args = {}
+                    tool_result = await self.handle_tool_call(func_name, func_args)
+                    conversation.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": tool_result,
+                        }
+                    )
+
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=conversation,
+                    tools=self.get_tools_schema(),
+                    tool_choice="auto",
+                    max_tokens=2500,
+                    temperature=0.7,
+                )
+                return response.choices[0].message.content or ""
+
+            return choice.message.content or ""
         except Exception as e:
             log.error(f"Weekly review generation failed: {e}")
             return "Weekly review generation failed. I'll try again next week."

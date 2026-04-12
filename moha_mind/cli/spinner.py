@@ -46,7 +46,6 @@ class NeuralPulse:
         self.mood = mood
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._frame_idx = 0
         self._active = False
 
     def _build_frame(self, frame_idx: int, msg_idx: int) -> Group:
@@ -68,10 +67,11 @@ class NeuralPulse:
         return Group(colored_frame, label)
 
     def _spin(self, live: Live) -> None:
+        idx = 0
         while not self._stop_event.is_set():
-            frame = self._build_frame(self._frame_idx, self._frame_idx)
+            frame = self._build_frame(idx, idx)
             live.update(frame)
-            self._frame_idx += 1
+            idx += 1
             self._stop_event.wait(0.12)
 
     def start(self) -> None:
@@ -92,8 +92,9 @@ class NeuralPulse:
     def stop(self) -> None:
         if not self._active:
             return
+        self._active = False
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=0.5)
-        self._live.stop()
-        self._active = False
+        if hasattr(self, "_live"):
+            self._live.stop()

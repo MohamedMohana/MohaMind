@@ -31,7 +31,7 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
     health = memory.read("health")
     documents = memory.read("documents")
     relationships = memory.read("relationships")
-    memory.read("shopping")
+    shopping = memory.read("shopping")
 
     expiring = memory.get_expiring_items(days_ahead=14)
     expiring_text = ""
@@ -73,10 +73,21 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"- add_task: Add a new task\n"
         f"- complete_task: Mark a task as done\n"
         f"- list_tasks: Show active tasks\n"
-        f"- add_bill, add_subscription: Track finances\n"
-        f"- log_service: Log vehicle maintenance\n"
-        f"- add_person, log_contact: Track relationships\n"
-        f"- add_appointment: Track appointments\n"
+        f"- get_expiring: Get items expiring soon\n"
+        f"- append_to_section: Add to a memory section\n"
+        f"- save_note: Save a quick note\n"
+        f"- save_daily_log: Log a daily summary\n"
+        f"- family_add_appointment: Add family appointment\n"
+        f"- family_get_upcoming: Get upcoming family events\n"
+        f"- family_update_pregnancy_week: Update pregnancy week\n"
+        f"- family_add_kid_event: Add kid event\n"
+        f"- family_add_vaccination: Log vaccination\n"
+        f"- family_get_vaccination_schedule: Get vaccination schedule\n"
+        f"- social_add_person: Add person to relationships\n"
+        f"- social_log_contact: Log contact with someone\n"
+        f"- social_get_neglected: Find neglected contacts\n"
+        f"- social_add_gift_idea: Save a gift idea\n"
+        f"- social_get_upcoming_birthdays: Get upcoming birthdays\n"
         f"- get_calendar_events: Check Google/MS calendars\n"
         f"- And more...\n\n"
         f"## USER'S LIFE CONTEXT\n"
@@ -89,6 +100,7 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"{f'### HEALTH\\n{health}\\n' if health.strip() else ''}"
         f"{f'### DOCUMENTS\\n{documents}\\n' if documents.strip() else ''}"
         f"{f'### RELATIONSHIPS\\n{relationships}\\n' if relationships.strip() else ''}"
+        f"{f'### SHOPPING\\n{shopping}\\n' if shopping.strip() else ''}"
         f"{expiring_text}\n"
         f"{urgent_text}\n"
         f"{f'### ADDITIONAL CONTEXT\\n{extra_context}' if extra_context else ''}\n\n"

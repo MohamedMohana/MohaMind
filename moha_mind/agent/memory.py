@@ -169,8 +169,9 @@ class MemoryManager:
                     "text": full_text.replace("[HIGH]", "")
                     .replace("[LOW]", "")
                     .replace("[MED]", "")
-                    .replace("due:" + (due or ""), "")
-                    .strip(),
+                    .replace(f"due:{due}", "")
+                    if due
+                    else full_text.replace("[HIGH]", "").replace("[LOW]", "").replace("[MED]", "").strip(),
                     "done": done,
                     "priority": priority,
                     "due": due,

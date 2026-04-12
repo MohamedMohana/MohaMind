@@ -106,7 +106,10 @@ class SocialServer:
                     except ValueError:
                         current_data["days_since"] = 999
                 freq_match = re.search(
-                    r"frequency:\s*(\w+)", content[content.find(current_person) : content.find(current_person) + 500]
+                    r"frequency:\s*(\w+)",
+                    content[max(0, content.find(current_person)) : content.find(current_person) + 500]
+                    if current_person in content
+                    else "",
                 )
                 current_data["frequency"] = freq_match.group(1) if freq_match else "monthly"
                 if "notes" in line.lower():
