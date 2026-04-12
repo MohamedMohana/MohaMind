@@ -2,6 +2,12 @@
 
 Starts the Telegram bot, MCP servers, and scheduler all in one process.
 Also supports an interactive CLI mode.
+
+Usage:
+    mohamind           Start Telegram bot + scheduler
+    mohamind --cli      Interactive CLI mode
+    mohamind setup      Run setup wizard
+    mohamind doctor     Check configuration health
 """
 
 import asyncio
@@ -9,21 +15,55 @@ import signal
 import sys
 from pathlib import Path
 
-from moha_mind.agent.core import MohaMindAgent
-from moha_mind.agent.memory import MemoryManager
-from moha_mind.config import settings
-from moha_mind.mcp_servers.family.server import FamilyServer
-from moha_mind.mcp_servers.life_tracker.server import LifeTrackerServer
-from moha_mind.mcp_servers.memory_store.server import MemoryStoreServer
-from moha_mind.mcp_servers.social.server import SocialServer
-from moha_mind.mcp_servers.tasks.server import TaskServer
-from moha_mind.scheduler.jobs import SchedulerJobs
-from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.utils.logging_config import log
 
 
-async def bootstrap() -> tuple[MemoryManager, MohaMindAgent, MohaMindBot, SchedulerJobs]:
-    """Initialize all MohaMind components."""
+def _get_cli_args():
+    args = {
+        "cli": "--cli" in sys.argv or "-i" in sys.argv,
+        "setup": "setup" in sys.argv,
+        "doctor": "doctor" in sys.argv,
+        "quick_setup": "--quick" in sys.argv,
+    }
+    return args
+
+
+def _check_first_run():
+    if not Path(".env").exists():
+        from rich.console import Console
+
+        console = Console()
+        console.print()
+        console.print("[bold yellow]⚠️  No .env file found![/]")
+        console.print("[dim]It looks like this is your first run.[/]")
+        console.print()
+        try:
+            from rich.prompt import Confirm
+
+            if Confirm.ask("Run setup wizard?", default=True, console=console):
+                from moha_mind.cli.setup_wizard import run_setup
+
+                run_setup(quick=False)
+                console.print()
+            else:
+                console.print("[dim]You can run [bold]mohamind setup[/] anytime.[/]")
+                console.print()
+        except (EOFError, KeyboardInterrupt):
+            console.print("[dim]\nRun [bold]mohamind setup[/] to get started.[/]")
+            console.print()
+
+
+async def bootstrap(require_telegram: bool = True):
+    from moha_mind.agent.core import MohaMindAgent
+    from moha_mind.agent.memory import MemoryManager
+    from moha_mind.config import settings
+    from moha_mind.mcp_servers.family.server import FamilyServer
+    from moha_mind.mcp_servers.life_tracker.server import LifeTrackerServer
+    from moha_mind.mcp_servers.memory_store.server import MemoryStoreServer
+    from moha_mind.mcp_servers.social.server import SocialServer
+    from moha_mind.mcp_servers.tasks.server import TaskServer
+    from moha_mind.scheduler.jobs import SchedulerJobs
+
     log.info("=" * 50)
     log.info("MohaMind - Personal AI Agent")
     log.info("=" * 50)
@@ -84,17 +124,23 @@ async def bootstrap() -> tuple[MemoryManager, MohaMindAgent, MohaMindBot, Schedu
 
     log.info("All MCP servers registered")
 
-    bot = MohaMindBot(agent, memory)
-    bot.setup()
+    bot = None
+    scheduler = None
 
-    scheduler = SchedulerJobs(agent, memory, bot)
+    if require_telegram:
+        from moha_mind.telegram_bot.bot import MohaMindBot
+
+        bot = MohaMindBot(agent, memory)
+        bot.setup()
+        scheduler = SchedulerJobs(agent, memory, bot)
 
     return memory, agent, bot, scheduler
 
 
 async def main() -> None:
-    """Main async entry point."""
-    memory, agent, bot, scheduler = await bootstrap()
+    from moha_mind.config import settings
+
+    memory, agent, bot, scheduler = await bootstrap(require_telegram=True)
 
     scheduler.start()
     log.info("Scheduler started")
@@ -133,36 +179,52 @@ async def main() -> None:
 
 
 async def main_cli() -> None:
-    """Interactive CLI mode."""
-    memory, agent, bot, scheduler = await bootstrap()
+    memory, agent, bot, scheduler = await bootstrap(require_telegram=False)
 
-    scheduler.start()
-    log.info("Scheduler started (background)")
+    if scheduler:
+        scheduler.start()
 
     from moha_mind.cli.app import MohaMindCLI
 
     cli = MohaMindCLI(memory, agent)
 
-    bot_task = asyncio.create_task(bot.start())
+    bot_task = None
+    if bot:
+        bot_task = asyncio.create_task(bot.start())
 
     try:
         await cli.run()
     finally:
-        scheduler.stop()
-        await bot.stop()
-        bot_task.cancel()
-        try:
-            await bot_task
-        except asyncio.CancelledError:
-            pass
+        if scheduler:
+            scheduler.stop()
+        if bot:
+            await bot.stop()
+            bot_task.cancel()
+            try:
+                await bot_task
+            except asyncio.CancelledError:
+                pass
 
 
 def run() -> None:
-    """Synchronous entry point for uv/pip script."""
-    cli_mode = "--cli" in sys.argv or "-i" in sys.argv
+    args = _get_cli_args()
+
+    if args["setup"]:
+        from moha_mind.cli.setup_wizard import run_setup
+
+        run_setup(quick=args["quick_setup"])
+        return
+
+    if args["doctor"]:
+        from moha_mind.cli.setup_wizard import run_doctor
+
+        run_doctor()
+        return
+
+    _check_first_run()
 
     try:
-        if cli_mode:
+        if args["cli"]:
             asyncio.run(main_cli())
         else:
             asyncio.run(main())
