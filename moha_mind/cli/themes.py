@@ -9,39 +9,42 @@ from rich.style import Style
 from rich.text import Text
 
 ENERGY_HIGH = {
-    "primary": "#FF6B6B",
-    "accent": "#FFD93D",
-    "secondary": "#6BCB77",
-    "brain": "#FF8E53",
-    "prompt": "bold #FF6B6B",
-    "panel_border": "#FF6B6B",
-    "panel_title": "bold #FFD93D",
-    "status": "#6BCB77",
-    "dim": "#888888",
+    "primary": "#F97316",
+    "accent": "#FACC15",
+    "secondary": "#FB7185",
+    "brain": "#FDBA74",
+    "prompt": "bold #F97316",
+    "panel_border": "#F97316",
+    "panel_title": "bold #FACC15",
+    "status": "#FB7185",
+    "dim": "#8B8B8B",
+    "prompt_label": "majlis",
 }
 
 ENERGY_NEUTRAL = {
-    "primary": "#4ECDC4",
-    "accent": "#45B7D1",
-    "secondary": "#96CEB4",
-    "brain": "#5EEAD4",
-    "prompt": "bold #4ECDC4",
-    "panel_border": "#4ECDC4",
-    "panel_title": "bold #45B7D1",
-    "status": "#96CEB4",
-    "dim": "#888888",
+    "primary": "#0F766E",
+    "accent": "#14B8A6",
+    "secondary": "#C08457",
+    "brain": "#2DD4BF",
+    "prompt": "bold #0F766E",
+    "panel_border": "#0F766E",
+    "panel_title": "bold #14B8A6",
+    "status": "#C08457",
+    "dim": "#7A7A7A",
+    "prompt_label": "mohamind",
 }
 
 ENERGY_LOW = {
-    "primary": "#667EEA",
-    "accent": "#764BA2",
-    "secondary": "#A78BFA",
-    "brain": "#818CF8",
-    "prompt": "bold #667EEA",
-    "panel_border": "#667EEA",
-    "panel_title": "bold #A78BFA",
-    "status": "#764BA2",
-    "dim": "#666666",
+    "primary": "#1D4ED8",
+    "accent": "#7C3AED",
+    "secondary": "#38BDF8",
+    "brain": "#60A5FA",
+    "prompt": "bold #1D4ED8",
+    "panel_border": "#1D4ED8",
+    "panel_title": "bold #7C3AED",
+    "status": "#38BDF8",
+    "dim": "#676767",
+    "prompt_label": "night-shift",
 }
 
 MOOD_THEMES = {
@@ -51,9 +54,9 @@ MOOD_THEMES = {
 }
 
 BRAIN_COLORS = {
-    "high": ["#FF6B6B", "#FFD93D", "#FF8E53", "#6BCB77"],
-    "neutral": ["#4ECDC4", "#45B7D1", "#5EEAD4", "#96CEB4"],
-    "low": ["#667EEA", "#764BA2", "#818CF8", "#A78BFA"],
+    "high": ["#F97316", "#FACC15", "#FB7185", "#FDBA74"],
+    "neutral": ["#0F766E", "#14B8A6", "#2DD4BF", "#C08457"],
+    "low": ["#1D4ED8", "#7C3AED", "#60A5FA", "#38BDF8"],
 }
 
 

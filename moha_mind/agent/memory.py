@@ -17,6 +17,7 @@ MEMORY_FILES = {
     "profile": "profile.md",
     "family": "family.md",
     "tasks": "tasks.md",
+    "reminders": "reminders.md",
     "occasions": "occasions.md",
     "vehicle": "vehicle.md",
     "finances": "finances.md",
@@ -105,7 +106,7 @@ class MemoryManager:
 
     def get_all_context(self, categories: Optional[list[str]] = None) -> str:
         """Get combined content from multiple memory categories for LLM context."""
-        cats = categories or ["profile", "family", "tasks", "occasions", "vehicle", "finances", "health"]
+        cats = categories or ["profile", "family", "tasks", "reminders", "occasions", "vehicle", "finances", "health"]
         parts = []
         for cat in cats:
             content = self.read(cat)
@@ -212,6 +213,143 @@ class MemoryManager:
                 return True
         return False
 
+    def _parse_reminder_line(self, line: str) -> Optional[dict]:
+        reminder_match = re.match(r"^- \[([ x])\] (.+)$", line.strip())
+        if not reminder_match:
+            return None
+
+        done = reminder_match.group(1) == "x"
+        payload = reminder_match.group(2).strip()
+        parts = [part.strip() for part in payload.split(" | ") if part.strip()]
+        if not parts:
+            return None
+
+        reminder = {
+            "text": parts[0],
+            "done": done,
+            "remind_at": "",
+            "event_at": "",
+            "repeat": "none",
+            "notes": "",
+            "source": "manual",
+        }
+
+        for part in parts[1:]:
+            if ":" not in part:
+                continue
+            key, value = part.split(":", 1)
+            reminder[key.strip()] = value.strip()
+
+        return reminder
+
+    def _format_reminder_line(self, reminder: dict) -> str:
+        parts = [reminder["text"]]
+        if reminder.get("remind_at"):
+            parts.append(f"remind_at:{reminder['remind_at']}")
+        if reminder.get("event_at"):
+            parts.append(f"event_at:{reminder['event_at']}")
+        parts.append(f"repeat:{reminder.get('repeat', 'none')}")
+        if reminder.get("notes"):
+            parts.append(f"notes:{reminder['notes']}")
+        if reminder.get("source"):
+            parts.append(f"source:{reminder['source']}")
+        marker = "x" if reminder.get("done") else " "
+        return f"- [{marker}] " + " | ".join(parts)
+
+    def get_reminder_section(self, include_completed: bool = False) -> list[dict]:
+        content = self.read("reminders")
+        if not content:
+            return []
+
+        reminders = []
+        for line in content.split("\n"):
+            parsed = self._parse_reminder_line(line)
+            if not parsed:
+                continue
+            if parsed["done"] and not include_completed:
+                continue
+            reminders.append(parsed)
+
+        return reminders
+
+    def add_reminder(
+        self,
+        text: str,
+        remind_at: str,
+        event_at: Optional[str] = None,
+        repeat: str = "none",
+        notes: str = "",
+        source: str = "agent",
+    ) -> None:
+        content = self.read("reminders")
+        if not content:
+            content = "# Reminders\n\n## Scheduled\n"
+
+        reminder = {
+            "text": text.strip(),
+            "done": False,
+            "remind_at": remind_at.strip(),
+            "event_at": (event_at or "").strip(),
+            "repeat": repeat.strip() or "none",
+            "notes": notes.strip(),
+            "source": source.strip() or "agent",
+        }
+        line = self._format_reminder_line(reminder)
+
+        if "## Scheduled" in content:
+            self.append_to_section("reminders", "Scheduled", line)
+        else:
+            self.append("reminders", f"\n## Scheduled\n{line}")
+
+    def complete_reminder(self, reminder_text: str, remind_at: Optional[str] = None) -> bool:
+        content = self.read("reminders")
+        if not content:
+            return False
+
+        lines = content.split("\n")
+        for i, line in enumerate(lines):
+            parsed = self._parse_reminder_line(line)
+            if not parsed or parsed["done"]:
+                continue
+            if reminder_text.lower() not in parsed["text"].lower():
+                continue
+            if remind_at and parsed.get("remind_at") != remind_at:
+                continue
+            parsed["done"] = True
+            lines[i] = self._format_reminder_line(parsed)
+            self.write("reminders", "\n".join(lines))
+            return True
+        return False
+
+    def reschedule_reminder(
+        self,
+        reminder_text: str,
+        current_remind_at: str,
+        new_remind_at: str,
+        new_event_at: Optional[str] = None,
+    ) -> bool:
+        content = self.read("reminders")
+        if not content:
+            return False
+
+        lines = content.split("\n")
+        for i, line in enumerate(lines):
+            parsed = self._parse_reminder_line(line)
+            if not parsed:
+                continue
+            if reminder_text.lower() not in parsed["text"].lower():
+                continue
+            if parsed.get("remind_at") != current_remind_at:
+                continue
+            parsed["done"] = False
+            parsed["remind_at"] = new_remind_at
+            if new_event_at is not None:
+                parsed["event_at"] = new_event_at
+            lines[i] = self._format_reminder_line(parsed)
+            self.write("reminders", "\n".join(lines))
+            return True
+        return False
+
     def get_expiring_items(self, days_ahead: int = 90) -> list[dict]:
         """Scan all memory files for items with expiry dates."""
         from moha_mind.utils.timezone import days_until
@@ -288,6 +426,12 @@ class MemoryManager:
                 "<!-- - Person Name: YYYY-MM-DD -->\n\n"
                 "## Anniversaries\n<!-- - Event: YYYY-MM-DD -->\n\n"
                 "## Annual Events\n<!-- - Event name: MM-DD (recurring) -->\n"
+            ),
+            "reminders": (
+                "# Reminders\n\n## Scheduled\n"
+                "<!-- - [ ] Call Ahmad | remind_at:2026-04-13 09:00 | event_at:2026-04-13 09:30 | repeat:none -->\n\n"
+                "## Completed\n"
+                "<!-- - [x] Paid electricity bill | remind_at:2026-04-10 08:00 | repeat:none -->\n"
             ),
             "vehicle": (
                 "# Vehicle\n\n## Details\n- Make/Model: \n- Year: \n"

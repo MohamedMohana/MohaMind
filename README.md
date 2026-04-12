@@ -1,351 +1,404 @@
-<div align="center">
+# MohaMind
 
-# 🧠 MohaMind
+MohaMind is a CLI-first personal AI agent built for people who manage real life at high speed and do not want their tasks, reminders, family events, documents, subscriptions, and follow-ups scattered across apps.
 
-**Your Personal AI Agent That Knows Everything About You**
+It runs in the terminal, talks through Telegram, stores memory in readable Markdown files, and uses an OpenAI-compatible LLM stack with z.ai as the primary provider and OpenAI as fallback.
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 345](https://img.shields.io/badge/tests-345%20passing-brightgreen.svg)]()
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-382%20passing-16A34A.svg)](#testing)
 
-*Connects to Telegram, Google Calendar, Outlook, and manages your entire life — tasks, family, finances, health, relationships, vehicle, documents, and more.*
+## Why MohaMind
 
-[Getting Started](#-getting-started) • [Features](#-features) • [Architecture](#-architecture) • [Commands](#-commands) • [Configuration](#-configuration)
+Most personal agents stop at chat. MohaMind is designed to act more like an operating layer for your life:
 
-</div>
+- CLI-first workflow with a branded command center instead of a thin prompt wrapper
+- Telegram interface for natural back-and-forth in English or Arabic
+- Markdown memory you can inspect, edit, back up, and version
+- Proactive scheduler for briefings, reminders, expiry checks, and weekly reviews
+- Attention Radar that ranks what needs action now
+- Calendar integrations for Google Calendar and Microsoft Outlook
 
----
+Typical use cases:
 
-## 🚀 Getting Started
+- "Tomorrow at 9 AM remind me to call Ahmad."
+- "Remind me one day before my wedding anniversary and again on the same day."
+- "What is coming up this week across tasks, bills, family events, and calendar?"
+- "Who have I neglected lately?"
 
-### Prerequisites
+## Core Capabilities
+
+### Personal memory
+
+MohaMind stores persistent state in Markdown under `memory/`. The agent reads and updates files such as:
+
+- `profile.md`
+- `tasks.md`
+- `reminders.md`
+- `occasions.md`
+- `family.md`
+- `documents.md`
+- `finances.md`
+- `health.md`
+- `relationships.md`
+- `shopping.md`
+- `vehicle.md`
+
+This keeps the system understandable and portable. You are never locked into a database you cannot read.
+
+### Proactive life operations
+
+The scheduler runs recurring jobs for:
+
+- Daily morning briefing
+- Reminder checks every 30 minutes
+- Expiry monitoring for documents and subscriptions
+- Weekly review
+- Social pulse nudges
+- Family milestone updates
+
+### Attention Radar
+
+Attention Radar is a ranked view of what matters most across:
+
+- overdue or upcoming tasks
+- timed reminders
+- expiring items
+- birthdays, anniversaries, and other occasions
+- family events
+- neglected relationships
+
+### Interfaces
+
+MohaMind currently ships with:
+
+- a rich interactive CLI
+- a Telegram bot
+- optional Google Calendar integration
+- optional Microsoft Outlook / Graph integration
+
+## Quick Start
+
+### Requirements
 
 - Python 3.12+
-- [uv](https://docs.astral.sh/uv/) package manager (recommended) or pip
-- An API key from [z.ai](https://open.bigmodel.cn) (free tier available) or [OpenAI](https://platform.openai.com)
+- [uv](https://docs.astral.sh/uv/)
+- at least one LLM API key:
+  - [z.ai](https://open.bigmodel.cn)
+  - [OpenAI](https://platform.openai.com/)
 
 ### Install
 
 ```bash
-# Clone the repo
 git clone https://github.com/MohamedMohana/MohaMind.git
 cd MohaMind
-
-# Install dependencies
 uv sync
+```
 
-# Run the setup wizard (guides you through API keys, timezone, etc.)
+### Configure
+
+The recommended path is the built-in setup wizard:
+
+```bash
 uv run mohamind setup
 ```
 
-The setup wizard will:
-1. Ask which LLM provider to use (z.ai or OpenAI)
-2. Prompt for your API key (hidden input)
-3. Optionally configure Telegram bot integration
-4. Set your timezone and briefing schedule
-5. Save everything to `.env` (never committed to git)
+You can also use the lightweight first-run onboarding by simply launching `mohamind` with no API key configured. MohaMind will prompt for the provider, key, and timezone, then write `.env` for you.
 
 ### Run
 
 ```bash
-# Start MohaMind (opens interactive CLI - the default)
+# Interactive CLI
 uv run mohamind
 
 # Start with an initial message
-uv run mohamind "What tasks are due this week?"
+uv run mohamind "Plan my week"
 
-# One-shot mode (print answer, exit)
-uv run mohamind -p "Summarize my upcoming expirations"
+# One-shot mode
+uv run mohamind -p "What is expiring soon?"
 
-# Start Telegram bot daemon (headless, no CLI)
+# Telegram bot only
 uv run mohamind --bot
 
-# CLI + Telegram bot together
+# CLI and Telegram together
 uv run mohamind --all
 
-# Check your configuration
+# Configuration doctor
 uv run mohamind doctor
-
-# Re-run setup wizard
-uv run mohamind setup
 ```
 
-### First-Run Experience
+## How To Use It Well
 
-When you first run `mohamind`, it detects no API key and shows a quick inline auth dialog:
+### 1. Treat it like a personal operations desk
 
-```
-╭──────────────────────────────────────────────╮
-│  Welcome to MohaMind!                        │
-│                                              │
-│  No API key found. Let's get you set up.     │
-│  Your key is saved to .env (never committed).│
-╰──────────────────────────────────────────────╯
+Use MohaMind for actions with memory and follow-through:
 
-  Choose your AI provider:
-  1 z.ai (GLM-4) - recommended
-  2 OpenAI (GPT)
-  Choice [1]: 1
+- task capture
+- reminders with explicit time
+- birthdays and anniversaries
+- subscriptions and documents
+- family appointments
+- relationship follow-ups
 
-  Get your key from https://open.bigmodel.cn
-  z.ai API key: sk-xxxxx
+### 2. Be explicit with dates and people
 
-  Your timezone [Asia/Riyadh]:
+Good prompts:
 
-  ✅ Saved! You're ready to go.
+- `Tomorrow at 9 AM remind me to call Ahmad about the contract.`
+- `Add a yearly reminder for Sara's birthday on August 18.`
+- `What needs my attention this week?`
+- `Search for all notes about my passport renewal.`
 
-  Configure Telegram bot? (optional) [y/N]:
-```
+Arabic also works well for natural requests, for example:
 
-No manual config editing. Just run `mohamind` and go.
+- `ذكرني بكرة الساعة 9 الصباح أتصل بأحمد`
+- `ذكرني قبل عيد زواجي بيوم وفي نفس اليوم`
 
----
+### 3. Use the command surfaces directly
 
-## ✨ Features
+Chat is useful, but the CLI and Telegram commands expose the fastest paths for daily usage.
 
-### 🧠 Smart AI Agent
-- **z.ai GLM-4** as primary brain (cost-effective, powerful)
-- **OpenAI GPT-4o-mini** as automatic fallback
-- Tool-calling loop with up to 5 rounds of tool usage per conversation
-- Context-aware with full memory access in every conversation
+## CLI Guide
 
-### 💾 Connected Memory Engine
-- Human-readable **Markdown files** for all your data
-- 14 memory categories: profile, family, tasks, occasions, vehicle, finances, health, home, documents, travel, learning, shopping, relationships, energy log
-- **Auto-linking engine** — mentions "birthday" in a task? Automatically connects to family/occasions
-- Search across all memories instantly
+MohaMind's terminal interface is built around a branded command center called the Majlis. It is meant to feel like an operator console, not a plain chatbot shell.
 
-### ⏰ Proactive Scheduling
-- **Morning Briefing** — daily at your chosen time (default 8:00 AM KSA)
-- **Expiry Guardian** — tracks everything expiring (passport, insurance, subscriptions) and alerts at 90/30/7/0 days
-- **Social Pulse** — nudges you to reconnect with people you haven't contacted
-- **Reminder Engine** — checks every 30 minutes for upcoming deadlines
-- **Weekly Life Review** — comprehensive Sunday review of your week
-- **Pregnancy Tracker** — weekly milestone updates (Saturdays at 9 AM)
+### Main CLI commands
 
-### 📱 Telegram Bot Interface
-- 20+ commands: `/briefing`, `/tasks`, `/add`, `/search`, `/family`, `/social`, `/forget`, etc.
-- Rich formatted messages with priority colors and urgency indicators
-- Full conversation support — just talk naturally
-
-### 🖥️ Premium CLI Interface
-- **Neural pulse spinner** — animated brain-wave thinking indicator
-- **Mood-aware themes** — colors adapt based on your energy state
-- **Rich panels** — beautiful tables for tasks, briefings, memory search
-- **Slash commands** with autocomplete and persistent history
-- **prompt_toolkit** powered input with history navigation
-
-### 🏠 Life Management
-
-| Category | Features |
-|----------|----------|
-| **Tasks** | Add, complete, update, list with priorities and due dates |
-| **Family** | Pregnancy tracker, kid events, vaccination schedule, appointments |
-| **Vehicle** | Service history, mileage tracking, next service reminders |
-| **Finances** | Bills, subscriptions, upcoming payment alerts |
-| **Health** | Medications, vitals logging, doctor directory |
-| **Home** | Maintenance log, appliance warranties |
-| **Documents** | Passport, ID, visa, driver license expiry tracking |
-| **Social** | Relationship tracker, contact frequency, gift ideas, birthday alerts |
-| **Learning** | Course tracking, progress updates |
-| **Shopping** | Shopping lists and purchase tracking |
-
-### 📅 Calendar Integration
-- **Google Calendar** — view upcoming events
-- **Microsoft Outlook** — view calendar events via Microsoft Graph
-
----
-
-## 🏗 Architecture
-
-```
-MohaMind/
-├── moha_mind/
-│   ├── agent/              # Core AI agent
-│   │   ├── core.py         # LLM conversation loop with tool calling
-│   │   ├── memory.py       # Markdown memory manager
-│   │   ├── connected_memory.py  # Auto-linking engine
-│   │   ├── energy_tracker.py    # Mood/energy pattern learning
-│   │   └── system_prompt.py     # Dynamic prompt builder
-│   ├── cli/                # Premium terminal interface
-│   │   ├── app.py          # Main CLI loop with slash commands
-│   │   ├── setup_wizard.py # Interactive setup & doctor
-│   │   ├── spinner.py      # Neural pulse animation
-│   │   ├── themes.py       # Mood-aware color schemes
-│   │   ├── banner.py       # Startup banner with stats
-│   │   ├── display.py      # Rich output panels
-│   │   ├── input_handler.py # prompt_toolkit with autocomplete
-│   │   └── commands.py     # Slash command registry
-│   ├── mcp_servers/        # MCP tool servers
-│   │   ├── memory_store/   # Memory CRUD
-│   │   ├── tasks/          # Task management
-│   │   ├── life_tracker/   # Vehicle, finance, health, home, docs, learning
-│   │   ├── family/         # Pregnancy, kids, vaccinations
-│   │   ├── social/         # Relationships, gifts, social pulse
-│   │   ├── google_calendar/ # Google Calendar API
-│   │   └── microsoft_graph/ # Outlook + MS Calendar
-│   ├── scheduler/          # APScheduler jobs
-│   ├── telegram_bot/       # Telegram interface
-│   ├── utils/              # Shared utilities
-│   ├── config.py           # Pydantic settings from .env
-│   └── main.py             # Entry point with setup/doctor/CLI modes
-├── memory/                 # Your personal data (gitignored)
-├── credentials/            # OAuth tokens (gitignored)
-├── tests/                  # 345 tests
-├── .env                    # Your secrets (gitignored, created by setup)
-└── .env.example            # Template with all options documented
-```
-
----
-
-## 💻 Commands
-
-### CLI Slash Commands
-
-| Command | Description |
-|---------|-------------|
-| `/help` | Show all available commands |
-| `/today` | Today's overview (tasks, expiring, time) |
-| `/tasks` | Show active tasks |
-| `/done <text>` | Complete a task |
-| `/add task <text>` | Quick add a task |
-| `/add note <title>` | Quick save a note |
+| Command | What it does |
+| --- | --- |
+| `/majlis` | Open the command center view |
+| `/radar` | Show ranked attention radar |
+| `/calendar` | Show calendar integration snapshot |
+| `/today` | Show today's overview |
+| `/tasks` | List active tasks |
+| `/reminders` | List scheduled reminders |
+| `/remind <text>` | Create a timed reminder from natural language |
+| `/briefing` | Generate the daily briefing |
+| `/review` | Generate the weekly review |
+| `/expiring` | Show upcoming expiries |
+| `/family` | Show family-related upcoming items |
+| `/social` | Show social follow-ups and neglected contacts |
+| `/finance` | Show bills and subscription-related information |
+| `/health` | Show health-related information |
+| `/vehicle` | Show vehicle-related information |
+| `/search <query>` | Search all memory files |
+| `/memory` | Preview memory categories |
+| `/add task <text>` | Quick-add a task |
+| `/done <text>` | Mark a task complete |
 | `/note <title>` | Save or list notes |
-| `/briefing` | Generate morning briefing |
-| `/review` | Generate weekly life review |
-| `/expiring` | Show expiring items (optional: days) |
-| `/search <query>` | Search across all memories |
-| `/memory` | Show all memory categories with preview |
-| `/family` | Family: upcoming events |
-| `/social` | Social: neglected contacts & birthdays |
-| `/vehicle` | Vehicle info |
-| `/health` | Health: medications & vitals |
-| `/finance` | Finance: upcoming bills & subscriptions |
-| `/mood` | Show energy/mood analysis |
-| `/stats` | Show system stats |
+| `/provider zai|openai` | Switch provider live |
+| `/model <name>` | Change the active model live |
+| `/doctor` | Run configuration checks |
 | `/config` | Show current configuration |
-| `/setup` | Re-run setup wizard |
-| `/doctor` | Check configuration health |
-| `/provider zai\|openai` | Switch LLM provider (live, no restart) |
-| `/model <name>` | Change model (live, no restart) |
-| `/key` | Update API key for current provider |
-| `/clear` | Clear screen |
-| `/quit` | Exit MohaMind |
 
-### Terminal Commands
+### CLI examples
 
-```bash
-mohamind                # Interactive CLI (default)
-mohamind "query"        # Start with initial message
-mohamind -p "query"     # One-shot: print answer and exit
-mohamind --bot          # Telegram bot daemon (headless)
-mohamind --all          # CLI + Telegram bot together
-mohamind setup          # Interactive setup wizard
-mohamind setup --quick  # Quick setup (only required fields)
-mohamind doctor         # Check configuration health
+```text
+/majlis
+/radar
+/remind remind me tomorrow at 9 am to call the school
+/search passport
+/add task renew car insurance
 ```
 
-### Telegram Bot Commands
+## Telegram Guide
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome message |
-| `/briefing` | Morning briefing |
-| `/today` | Today's schedule and tasks |
-| `/tomorrow` | Tomorrow's schedule |
-| `/tasks` | Active tasks |
+Telegram is the conversational interface for day-to-day capture and reminders. You can use commands or just send free-form messages.
+
+### Telegram commands
+
+| Command | What it does |
+| --- | --- |
+| `/start` | Show the intro and available workflows |
+| `/today` | Show today's overview |
+| `/tomorrow` | Show tomorrow's overview |
+| `/tasks` | Show active tasks |
+| `/reminders` | Show reminder queue |
+| `/remind <text>` | Create a timed reminder |
 | `/add <task>` | Add a task |
 | `/done <task>` | Complete a task |
-| `/search <query>` | Search memories |
-| `/family` | Family overview |
-| `/social` | Social connections |
-| `/vehicle` | Vehicle info |
-| `/finance` | Finance overview |
-| `/health` | Health info |
-| `/expire` | Expiring items |
-| `/forget <query>` | Remove from memory |
-| `/help` | Show all commands |
+| `/briefing` | Generate the briefing |
+| `/review` | Generate the weekly review |
+| `/calendar` | Show upcoming calendar events |
+| `/family` | Show family overview |
+| `/social` | Show social overview |
+| `/health` | Show health information |
+| `/pay` | Show finance information |
+| `/car` | Show vehicle information |
+| `/expiry` | Show expiring items |
+| `/shopping` | Show shopping information |
+| `/remember <text>` | Save something to memory |
+| `/recall <query>` | Search memory |
+| `/forget <query>` | Request forgetting / removal flow |
+| `/note <title>` | Save a note |
+| `/week` | Show the weekly outlook |
+| `/radar` | Show attention radar |
 
----
+### Telegram examples
 
-## ⚙️ Configuration
-
-All configuration is stored in `.env` (created by `mohamind setup`). Key options:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PRIMARY_LLM` | `zai` | Main AI brain (`zai` or `openai`) |
-| `ZAI_API_KEY` | — | z.ai API key from [open.bigmodel.cn](https://open.bigmodel.cn) |
-| `OPENAI_API_KEY` | — | OpenAI API key (fallback) |
-| `FALLBACK_LLM` | `openai` | Fallback if primary fails (`zai`, `openai`, or `none`) |
-| `TELEGRAM_BOT_TOKEN` | — | From @BotFather (optional for CLI mode) |
-| `TELEGRAM_CHAT_ID` | — | From @userinfobot (optional for CLI mode) |
-| `TIMEZONE` | `Asia/Riyadh` | Your IANA timezone |
-| `MORNING_BRIEFING_TIME` | `08:00` | Daily briefing time (HH:MM) |
-| `WEEKLY_REVIEW_DAY` | `sun` | Weekly review day |
-| `WEEKLY_REVIEW_TIME` | `19:00` | Weekly review time |
-| `MEMORY_DIR` | `./memory` | Memory files directory |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
-
-### Calendar Integration (Optional)
-
-**Google Calendar:**
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Enable Google Calendar API
-3. Create OAuth credentials
-4. Save to `credentials/google_credentials.json`
-
-**Microsoft Outlook:**
-1. Register an app in [Azure Portal](https://portal.azure.com)
-2. Grant `Calendars.Read` permission
-3. Set `MS_CLIENT_ID`, `MS_CLIENT_SECRET` in `.env`
-
----
-
-## 🧪 Testing
-
-```bash
-# Run all 345 tests
-uv run pytest
-
-# Run with verbose output
-uv run pytest -v
-
-# Run specific test file
-uv run pytest tests/test_cli.py
-
-# Lint check
-uv run ruff check .
-
-# Format check
-uv run ruff format --check .
+```text
+/remind remind me next Thursday at 4 pm to call the clinic
+/radar
+/today
 ```
 
----
+Or just talk naturally:
 
-## 🗺️ Roadmap
+```text
+I have a meeting tomorrow at 9 AM, remind me 30 minutes before.
+My son's birthday is on 2026-06-20. Save it as an occasion and remind me before it.
+```
 
-- [ ] MCP Memory knowledge graph integration
-- [ ] Smart Day Planning with energy-aware scheduling
-- [ ] Monthly financial summary with charts
-- [ ] Multi-user support
-- [ ] Voice messages via Telegram
-- [ ] Web dashboard
-- [ ] Docker deployment for VPS
-- [ ] Plugin system for custom MCP servers
+## Integrations
 
----
+### LLM providers
 
-## 📄 License
+- `z.ai` is the primary default
+- `OpenAI` is supported as fallback or primary
+- provider switching is available from the CLI
 
-MIT License — see [LICENSE](LICENSE) for details.
+### Telegram
 
----
+MohaMind can run as a headless Telegram bot or together with the CLI.
 
-<div align="center">
+Required environment variables:
 
-Built with 🧠 by [Mohamed Mohana](https://github.com/MohamedMohana)
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 
-*Your life, organized by AI.*
+### Google Calendar
 
-</div>
+1. Create OAuth credentials in Google Cloud.
+2. Enable the Google Calendar API.
+3. Place the credentials file at `./credentials/google_credentials.json`, or update the path in `.env`.
+
+Relevant variables:
+
+- `GOOGLE_CREDENTIALS_PATH`
+- `GOOGLE_TOKEN_PATH`
+
+### Microsoft Outlook / Graph
+
+1. Register an app in Azure.
+2. Grant calendar read permissions.
+3. Place the client credentials in `.env`.
+
+Relevant variables:
+
+- `MS_CLIENT_ID`
+- `MS_CLIENT_SECRET`
+- `MS_TENANT_ID`
+- `MS_TOKEN_PATH`
+
+## Configuration
+
+MohaMind reads configuration from `.env` using Pydantic Settings.
+
+Important variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PRIMARY_LLM` | `zai` | Active provider |
+| `FALLBACK_LLM` | `openai` | Fallback provider |
+| `ZAI_API_KEY` | empty | z.ai API key |
+| `ZAI_MODEL` | `glm-4-plus` | z.ai model |
+| `OPENAI_API_KEY` | empty | OpenAI API key |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model |
+| `TIMEZONE` | `Asia/Riyadh` | Agent timezone |
+| `MORNING_BRIEFING_TIME` | `08:00` | Daily briefing time |
+| `WEEKLY_REVIEW_DAY` | `sun` | Weekly review day |
+| `WEEKLY_REVIEW_TIME` | `19:00` | Weekly review time |
+| `MEMORY_DIR` | `./memory` | Markdown memory directory |
+| `LOG_LEVEL` | `INFO` | Logging level |
+
+Use `.env.example` as the reference template.
+
+## Memory Model
+
+MohaMind's core design choice is simple: your personal data remains legible.
+
+The memory system uses:
+
+- Markdown files with `##` sections
+- daily logs stored under `memory/daily_log/`
+- notes stored under `memory/notes/`
+- dedicated files for tasks, reminders, occasions, relationships, finance, and more
+
+Benefits:
+
+- easy to audit
+- easy to back up
+- easy to edit manually
+- works well for open source and self-hosted usage
+
+## Architecture
+
+```text
+MohaMind/
+├── moha_mind/
+│   ├── agent/           core agent loop, memory, prompting
+│   ├── cli/             interactive terminal interface
+│   ├── mcp_servers/     task, memory, family, social, reminders, attention
+│   ├── scheduler/       briefings, reminders, weekly review, expiry checks
+│   ├── telegram_bot/    Telegram handlers and formatting
+│   ├── utils/           dates, timezone helpers, occasion parsing
+│   ├── config.py        environment settings
+│   └── main.py          bootstrap and runtime modes
+├── memory/              personal memory files
+├── credentials/         OAuth tokens and API credentials
+└── tests/               test suite
+```
+
+High-level runtime flow:
+
+1. Bootstrap memory, agent, and MCP-style tool servers.
+2. Register tools for tasks, family, reminders, social tracking, calendars, and attention radar.
+3. Run through the CLI, Telegram, or both.
+4. Let the scheduler handle proactive jobs in the background.
+
+## Development
+
+### Install dependencies
+
+```bash
+uv sync
+```
+
+### Run tests
+
+```bash
+uv run pytest -q
+```
+
+### Lint
+
+```bash
+uv run ruff check .
+uv run ruff format .
+```
+
+## Testing
+
+The current test suite covers the core agent, memory manager, CLI, scheduler behavior, attention radar, reminders, and occasion parsing.
+
+```bash
+uv run pytest -q
+```
+
+At the time of writing, the suite passes with `382` tests.
+
+## Product Direction
+
+MohaMind is aimed at becoming a serious personal agent for operators, founders, and busy family people who need:
+
+- strong capture
+- reliable reminders
+- proactive life organization
+- direct control over memory
+- multi-surface access from terminal and Telegram
+
+The codebase is already structured for further work such as better reminder parsing, voice-note intake, deeper calendar automation, and more advanced context management.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

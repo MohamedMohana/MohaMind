@@ -290,8 +290,9 @@ class SetupWizard:
             Panel(
                 "[bold green]Setup complete![/] Run [bold cyan]mohamind[/] to start your agent.\n\n"
                 "Quick start:\n"
-                "  [bold]mohamind[/]          - Start Telegram bot\n"
-                "  [bold]mohamind --cli[/]    - Interactive CLI mode\n"
+                "  [bold]mohamind[/]          - Interactive CLI mode\n"
+                "  [bold]mohamind --bot[/]    - Telegram bot only\n"
+                "  [bold]mohamind --all[/]    - CLI and Telegram bot together\n"
                 "  [bold]mohamind setup[/]    - Re-run this wizard\n"
                 "  [bold]mohamind doctor[/]   - Check configuration health",
                 title="✅ All Done!",

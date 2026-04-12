@@ -48,6 +48,15 @@ class Handlers:
         for part in truncate_message(response):
             await update.message.reply_text(part)
 
+    async def tomorrow(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /tomorrow command."""
+        response = await self.agent.chat(
+            "What's on my schedule for tomorrow? Show me tasks, calendar, appointments, and anything important.",
+            chat_id=str(update.effective_chat.id),
+        )
+        for part in truncate_message(response):
+            await update.message.reply_text(part)
+
     async def tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /tasks command."""
         tasks = self.memory.get_task_section()
@@ -61,6 +70,39 @@ class Handlers:
             priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
             lines.append(f"{priority_emoji} {i}. {t['text']}{due_info}")
         await update.message.reply_text("\n".join(lines))
+
+    async def reminders(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /reminders command."""
+        from moha_mind.mcp_servers.reminders.server import ReminderServer
+
+        days = 14
+        if context.args:
+            try:
+                days = int(context.args[0])
+            except ValueError:
+                pass
+
+        server = ReminderServer(self.memory)
+        response = await server._list_reminders(days_ahead=days)
+        for part in truncate_message(response):
+            await update.message.reply_text(part)
+
+    async def remind(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /remind command."""
+        if not context.args:
+            await update.message.reply_text("Usage: /remind <message with date/time>")
+            return
+        reminder_text = " ".join(context.args)
+        response = await self.agent.chat(
+            (
+                "Set a timed reminder for this request. "
+                "Convert any relative date/time into an exact Asia/Riyadh datetime and use the reminder tools: "
+                f"{reminder_text}"
+            ),
+            chat_id=str(update.effective_chat.id),
+        )
+        for part in truncate_message(response):
+            await update.message.reply_text(part)
 
     async def add_task(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /add command."""
@@ -267,6 +309,15 @@ class Handlers:
             "Show me my week overview: all events, tasks with deadlines this week, important dates.",
             chat_id=str(update.effective_chat.id),
         )
+        for part in truncate_message(response):
+            await update.message.reply_text(part)
+
+    async def radar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /radar command."""
+        from moha_mind.mcp_servers.attention.server import AttentionServer
+
+        server = AttentionServer(self.memory)
+        response = await server._get_attention_radar(days_ahead=30, limit=8)
         for part in truncate_message(response):
             await update.message.reply_text(part)
 

@@ -1,5 +1,6 @@
 """Date helper utilities."""
 
+import calendar
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -55,3 +56,23 @@ def is_weekend(dt: datetime) -> bool:
 
 def date_range_days(start: datetime, days: int) -> list[datetime]:
     return [start + timedelta(days=i) for i in range(days)]
+
+
+def advance_recurrence(dt: datetime, recurrence: str) -> datetime:
+    recurrence = recurrence.lower().strip()
+    if recurrence in {"none", ""}:
+        return dt
+    if recurrence == "daily":
+        return dt + timedelta(days=1)
+    if recurrence == "weekly":
+        return dt + timedelta(days=7)
+    if recurrence == "monthly":
+        year = dt.year + (1 if dt.month == 12 else 0)
+        month = 1 if dt.month == 12 else dt.month + 1
+        day = min(dt.day, calendar.monthrange(year, month)[1])
+        return dt.replace(year=year, month=month, day=day)
+    if recurrence == "annual":
+        year = dt.year + 1
+        day = min(dt.day, calendar.monthrange(year, dt.month)[1])
+        return dt.replace(year=year, day=day)
+    return dt

@@ -1,0 +1,1 @@
+"""Attention radar MCP server."""

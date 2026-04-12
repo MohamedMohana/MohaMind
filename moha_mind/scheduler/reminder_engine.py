@@ -6,7 +6,9 @@ from datetime import datetime
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.telegram_bot.formatters import truncate_message
+from moha_mind.utils.date_helpers import advance_recurrence
 from moha_mind.utils.logging_config import log
+from moha_mind.utils.occasions import upcoming_occasions
 from moha_mind.utils.timezone import now_ksa
 
 
@@ -18,7 +20,7 @@ class ReminderEngine:
 
     async def check_and_remind(self) -> None:
         """Check for upcoming events and deadlines, send reminders."""
-        now_ksa()
+        now = now_ksa()
         reminders = []
 
         tasks = self.memory.get_task_section()
@@ -55,20 +57,76 @@ class ReminderEngine:
                     reminders.append(f"🔔 Expiring tomorrow: {item['detail']}")
                     self._sent_reminders.add(reminder_key)
 
-        content = self.memory.read("family")
-        if content:
-            for line in content.split("\n"):
-                date_match = re.search(r"\[(\d{4}-\d{2}-\d{2})\]", line)
-                if date_match:
-                    try:
-                        from moha_mind.utils.timezone import days_until
+        for occasion in upcoming_occasions(self.memory.read("occasions"), days_ahead=7, reference=now):
+            reminder_key = f"occasion:{occasion.kind}:{occasion.title}:{occasion.next_date.strftime('%Y-%m-%d')}"
+            if occasion.days_left == 7 and f"7d:{reminder_key}" not in self._sent_reminders:
+                reminders.append(f"🎉 In one week: {occasion.title}")
+                self._sent_reminders.add(f"7d:{reminder_key}")
+            elif occasion.days_left == 1 and f"1d:{reminder_key}" not in self._sent_reminders:
+                reminders.append(f"🎁 Tomorrow: {occasion.title}")
+                self._sent_reminders.add(f"1d:{reminder_key}")
+            elif occasion.days_left == 0 and f"0d:{reminder_key}" not in self._sent_reminders:
+                reminders.append(f"🎊 Today: {occasion.title}")
+                self._sent_reminders.add(f"0d:{reminder_key}")
 
-                        event_date = datetime.strptime(date_match.group(1), "%Y-%m-%d")
-                        days = days_until(event_date)
-                        if days == 1:
-                            reminders.append(f"👨‍👩‍👧‍👦 Tomorrow: {line.strip()}")
+        for reminder in self.memory.get_reminder_section():
+            remind_at = reminder.get("remind_at", "")
+            if not remind_at:
+                continue
+            try:
+                remind_dt = datetime.strptime(remind_at, "%Y-%m-%d %H:%M").replace(tzinfo=now.tzinfo)
+            except ValueError:
+                continue
+
+            reminder_key = f"timed:{reminder['text']}:{remind_at}"
+            if remind_dt > now or reminder_key in self._sent_reminders:
+                continue
+
+            event_suffix = f"\nEvent time: {reminder['event_at']}" if reminder.get("event_at") else ""
+            notes_suffix = f"\nNotes: {reminder['notes']}" if reminder.get("notes") else ""
+            reminders.append(f"⏰ Reminder: {reminder['text']}{event_suffix}{notes_suffix}")
+            self._sent_reminders.add(reminder_key)
+
+            repeat = reminder.get("repeat", "none")
+            if repeat and repeat != "none":
+                new_remind_dt = advance_recurrence(remind_dt.replace(tzinfo=None), repeat)
+                new_event_at = None
+                if reminder.get("event_at"):
+                    try:
+                        event_dt = datetime.strptime(reminder["event_at"], "%Y-%m-%d %H:%M")
+                        new_event_at = advance_recurrence(event_dt, repeat).strftime("%Y-%m-%d %H:%M")
                     except ValueError:
-                        continue
+                        new_event_at = reminder["event_at"]
+                self.memory.reschedule_reminder(
+                    reminder["text"],
+                    current_remind_at=remind_at,
+                    new_remind_at=new_remind_dt.strftime("%Y-%m-%d %H:%M"),
+                    new_event_at=new_event_at,
+                )
+            else:
+                self.memory.complete_reminder(reminder["text"], remind_at=remind_at)
+
+        family_content = self.memory.read("family")
+        if family_content:
+            for line in family_content.split("\n"):
+                date_match = re.search(r"\[(\d{4}-\d{2}-\d{2})\]", line)
+                if not date_match:
+                    continue
+                try:
+                    from moha_mind.utils.timezone import days_until
+
+                    event_date = datetime.strptime(date_match.group(1), "%Y-%m-%d")
+                    days = days_until(event_date)
+                except ValueError:
+                    continue
+
+                reminder_key = f"family:{line.strip()}:{date_match.group(1)}"
+                if days == 1 and f"1d:{reminder_key}" not in self._sent_reminders:
+                    reminders.append(f"👨‍👩‍👧‍👦 Tomorrow: {line.strip()}")
+                    self._sent_reminders.add(f"1d:{reminder_key}")
+                elif days == 0 and f"0d:{reminder_key}" not in self._sent_reminders:
+                    reminders.append(f"👨‍👩‍👧‍👦 Today: {line.strip()}")
+                    self._sent_reminders.add(f"0d:{reminder_key}")
 
         if len(self._sent_reminders) > 200:
             sent = list(self._sent_reminders)

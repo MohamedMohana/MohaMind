@@ -40,6 +40,18 @@ class TestAgentCoreTools:
         assert "complete_task" in names
         assert "list_tasks" in names
 
+    def test_get_tools_schema_includes_registered_external_tools(self, agent):
+        async def attention(days_ahead: int = 30, include_social: bool = True) -> str:
+            return "ok"
+
+        agent.register_tool("get_attention_radar", attention)
+
+        schema = agent.get_tools_schema()
+        attention_schema = next(s for s in schema if s["function"]["name"] == "get_attention_radar")
+
+        assert attention_schema["function"]["parameters"]["properties"]["days_ahead"]["type"] == "integer"
+        assert attention_schema["function"]["parameters"]["properties"]["include_social"]["type"] == "boolean"
+
     @pytest.mark.asyncio
     async def test_handle_tool_save_memory(self, agent):
         result = await agent.handle_tool_call("save_memory", {"category": "profile", "content": "Test content"})

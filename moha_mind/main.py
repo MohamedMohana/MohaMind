@@ -114,9 +114,11 @@ async def bootstrap(require_telegram: bool = False):
     from moha_mind.agent.core import MohaMindAgent
     from moha_mind.agent.memory import MemoryManager
     from moha_mind.config import settings
+    from moha_mind.mcp_servers.attention.server import AttentionServer
     from moha_mind.mcp_servers.family.server import FamilyServer
     from moha_mind.mcp_servers.life_tracker.server import LifeTrackerServer
     from moha_mind.mcp_servers.memory_store.server import MemoryStoreServer
+    from moha_mind.mcp_servers.reminders.server import ReminderServer
     from moha_mind.mcp_servers.social.server import SocialServer
     from moha_mind.mcp_servers.tasks.server import TaskServer
     from moha_mind.scheduler.jobs import SchedulerJobs
@@ -139,6 +141,8 @@ async def bootstrap(require_telegram: bool = False):
     life_server = LifeTrackerServer(memory)
     family_server = FamilyServer(memory)
     social_server = SocialServer(memory)
+    attention_server = AttentionServer(memory)
+    reminder_server = ReminderServer(memory)
 
     agent.register_tool("save_memory", memory_server._save)
     agent.register_tool("search_memory", memory_server._search)
@@ -160,6 +164,10 @@ async def bootstrap(require_telegram: bool = False):
     agent.register_tool("social_get_neglected", social_server._get_neglected)
     agent.register_tool("social_add_gift_idea", social_server._add_gift_idea)
     agent.register_tool("social_get_upcoming_birthdays", social_server._get_upcoming_birthdays)
+    agent.register_tool("add_reminder", reminder_server._add_reminder)
+    agent.register_tool("list_reminders", reminder_server._list_reminders)
+    agent.register_tool("complete_reminder", reminder_server._complete_reminder)
+    agent.register_tool("get_attention_radar", attention_server._get_attention_radar)
 
     try:
         from moha_mind.mcp_servers.google_calendar.server import GoogleCalendarServer

@@ -1,8 +1,4 @@
-"""ASCII art brain banner with live stats panel.
-
-Shows a stylized brain neural network on the left,
-and a dynamic stats dashboard on the right.
-"""
+"""ASCII art banner with a MohaMind command-deck layout."""
 
 from rich.columns import Columns
 from rich.console import Group
@@ -12,28 +8,12 @@ from rich.text import Text
 
 from moha_mind.cli.themes import BRAIN_COLORS, get_theme
 
-BRAIN_ART = r"""
-        ╔══════════════════════════╗
-        ║  __  __  __  __  __  __ ║
-        ║ /  \/  \/  \/  \/  \/  ║
-        ║ \_/\_/\_/\_/\_/\_/\_/\ ║
-        ║  /  \/  \/  \/  \/  \/ ║
-        ║  \_/\_/\_/\_/\_/\_/\_/ ║
-        ║   ╱╲  ╱╲  ╱╲  ╱╲  ╱╲  ║
-        ║  ╱  ╲╱  ╲╱  ╲╱  ╲╱  ╲ ║
-        ║ ╱ ●  ●  ●  ●  ●  ●  ● ║
-        ║  ╲  ╱╲  ╱╲  ╱╲  ╱╲  ╱ ║
-        ║   ╲╱  ╲╱  ╲╱  ╲╱  ╲╱  ║
-        ╚══════════════════════════╝"""
-
-COMPACT_BRAIN = "🧠 MohaMind"
-
 NEURAL_NODES = [
-    "  ◉──◉──◉  ",
-    " /|\\ /|\\   ",
-    "◉──◉──◉──◉",
-    " \\|/ \\|/   ",
-    "  ◉──◉──◉  ",
+    "   ◉════◉════◉   ",
+    "  ╱ ╲  ╱ ╲  ╱ ╲  ",
+    " ◉═══◉═══◉═══◉ ",
+    "  ╲ ╱  ╲ ╱  ╲ ╱  ",
+    "   ◉════◉════◉   ",
 ]
 
 
@@ -55,6 +35,9 @@ def build_banner(
     expiring_count: int = 0,
     mood: str = "neutral",
     uptime_hint: str = "",
+    telegram_enabled: bool = False,
+    google_enabled: bool = False,
+    microsoft_enabled: bool = False,
 ) -> Group:
     theme = get_theme(mood)
 
@@ -68,7 +51,7 @@ def build_banner(
     title.append("n", style="bold red")
     title.append("d", style="bold yellow")
 
-    subtitle = Text("Your Personal AI Agent", style=f"italic {theme['dim']}")
+    subtitle = Text("Majlis Command Deck", style=f"italic {theme['dim']}")
 
     stats_table = Table(show_header=False, box=None, padding=(0, 2))
     stats_table.add_column(style=theme["accent"], width=14)
@@ -78,16 +61,25 @@ def build_banner(
     stats_table.add_row("Timezone:", f"{timezone}")
     stats_table.add_row("Tasks:", f"{tasks_count} active")
     stats_table.add_row("Expiring:", f"{expiring_count} items" if expiring_count else "All clear")
+    integrations = []
+    if telegram_enabled:
+        integrations.append("Telegram")
+    if google_enabled:
+        integrations.append("GCal")
+    if microsoft_enabled:
+        integrations.append("Outlook")
+    stats_table.add_row("Links:", " • ".join(integrations) if integrations else "Local only")
     if uptime_hint:
         stats_table.add_row("Time:", uptime_hint)
 
     brain = _render_brain(mood)
+    pulse = Text("Attention • Calendar • Family • Social", style=f"bold {theme['secondary']}")
 
     left_panel = Panel(
-        Group(title, subtitle, Text(), brain),
+        Group(title, subtitle, Text(), pulse, Text(), brain),
         border_style=theme["panel_border"],
         padding=(1, 2),
-        title="[bold]🧠 Neural Core[/]",
+        title="[bold]✦ MohaMind[/]",
         title_align="center",
     )
 
@@ -95,7 +87,7 @@ def build_banner(
         stats_table,
         border_style=theme["panel_border"],
         padding=(1, 2),
-        title="[bold]📊 Status[/]",
+        title="[bold]⌘ Live Systems[/]",
         title_align="center",
     )
 
@@ -103,8 +95,12 @@ def build_banner(
 
     bottom_bar = Text()
     bottom_bar.append("─" * 60, style=theme["dim"])
-    bottom_bar.append("\n  Ready. Type ")
-    bottom_bar.append("/help", style=f"bold {theme['accent']}")
-    bottom_bar.append(" for commands or just start talking.\n")
+    bottom_bar.append("\n  Jump in with ")
+    bottom_bar.append("/majlis", style=f"bold {theme['accent']}")
+    bottom_bar.append(", ")
+    bottom_bar.append("/calendar", style=f"bold {theme['accent']}")
+    bottom_bar.append(", ")
+    bottom_bar.append("/radar", style=f"bold {theme['accent']}")
+    bottom_bar.append(" or just start talking.\n")
 
     return Group(columns, bottom_bar)

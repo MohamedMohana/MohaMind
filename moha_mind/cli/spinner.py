@@ -29,14 +29,14 @@ NEURAL_FRAMES = [
 ]
 
 THINKING_MESSAGES = [
-    "Thinking...",
-    "Processing...",
-    "Analyzing memories...",
-    "Connecting thoughts...",
-    "Recalling...",
-    "Synthesizing...",
-    "Reasoning...",
-    "Making connections...",
+    "Scanning your orbit...",
+    "Checking the command deck...",
+    "Linking memories...",
+    "Reading your signals...",
+    "Plotting next moves...",
+    "Synthesizing context...",
+    "Sorting priorities...",
+    "Bringing it together...",
 ]
 
 

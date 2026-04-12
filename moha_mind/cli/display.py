@@ -4,6 +4,7 @@ All output goes through this module for a consistent, premium look.
 Each function returns a renderable Rich object.
 """
 
+from rich.columns import Columns
 from rich.console import Group
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -26,6 +27,44 @@ def display_briefing(text: str, mood: str = "neutral") -> Panel:
         border_style=theme["panel_border"],
         padding=(1, 2),
     )
+
+
+def display_attention_radar(text: str, mood: str = "neutral") -> Panel:
+    theme = get_theme(mood)
+    return Panel(
+        Markdown(text),
+        title="🎯 Attention Radar",
+        title_align="left",
+        border_style=theme["panel_border"],
+        padding=(1, 2),
+    )
+
+
+def display_calendar_snapshot(text: str, mood: str = "neutral") -> Panel:
+    theme = get_theme(mood)
+    return Panel(
+        Markdown(text),
+        title="🗓 Calendar Horizon",
+        title_align="left",
+        border_style=theme["panel_border"],
+        padding=(1, 2),
+    )
+
+
+def display_command_center(sections: list[dict], mood: str = "neutral") -> Group:
+    theme = get_theme(mood)
+    panels = [
+        Panel(
+            Markdown(section["body"]),
+            title=section["title"],
+            title_align="left",
+            border_style=theme["panel_border"],
+            padding=(1, 2),
+        )
+        for section in sections
+    ]
+    header = Text("Majlis Command Center", style=theme["panel_title"])
+    return Group(header, Columns(panels, equal=True, expand=True))
 
 
 def display_tasks(tasks: list[dict], mood: str = "neutral") -> Panel:

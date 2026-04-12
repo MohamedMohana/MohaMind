@@ -24,6 +24,7 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
     profile = memory.read("profile")
     family = memory.read("family")
     tasks = memory.read("tasks")
+    reminders = memory.read("reminders")
     occasions = memory.read("occasions")
     vehicle = memory.read("vehicle")
     finances = memory.read("finances")
@@ -72,6 +73,9 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"- add_task: Add a new task\n"
         f"- complete_task: Mark a task as done\n"
         f"- list_tasks: Show active tasks\n"
+        f"- add_reminder: Schedule a timed reminder\n"
+        f"- list_reminders: Show scheduled reminders\n"
+        f"- complete_reminder: Mark a reminder as done\n"
         f"- get_expiring: Get items expiring soon\n"
         f"- append_to_section: Add to a memory section\n"
         f"- save_note: Save a quick note\n"
@@ -87,12 +91,15 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"- social_get_neglected: Find neglected contacts\n"
         f"- social_add_gift_idea: Save a gift idea\n"
         f"- social_get_upcoming_birthdays: Get upcoming birthdays\n"
-        f"- get_calendar_events: Check Google/MS calendars\n"
+        f"- get_calendar_events: Check Google Calendar\n"
+        f"- get_ms_calendar_events: Check Microsoft Calendar\n"
+        f"- get_attention_radar: Rank what needs your attention across life areas\n"
         f"- And more...\n\n"
         f"## USER'S LIFE CONTEXT\n"
         f"{f'### PROFILE\\n{profile}\\n' if profile.strip() else ''}"
         f"{f'### FAMILY\\n{family}\\n' if family.strip() else ''}"
         f"{f'### ACTIVE TASKS\\n{tasks}\\n' if tasks.strip() else ''}"
+        f"{f'### REMINDERS\\n{reminders}\\n' if reminders.strip() else ''}"
         f"{f'### OCCASIONS\\n{occasions}\\n' if occasions.strip() else ''}"
         f"{f'### VEHICLE\\n{vehicle}\\n' if vehicle.strip() else ''}"
         f"{f'### FINANCES\\n{finances}\\n' if finances.strip() else ''}"
@@ -114,6 +121,8 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"8. When the user mentions someone, check relationships.md for context and log the interaction\n"
         f"9. Keep responses concise - under 200 words unless the user asks for detail\n"
         f"10. ALWAYS use the appropriate tool when you need to save, search, or update information\n"
+        f"11. When the user asks what matters most next, use the attention radar and prioritize with conviction\n"
+        f"12. When the user asks to be reminded at a specific time, use add_reminder instead of only saving a note\n"
     )
 
     return prompt

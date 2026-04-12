@@ -37,8 +37,10 @@ class MohaMindBot:
 
         app.add_handler(CommandHandler("start", self.handlers.start))
         app.add_handler(CommandHandler("today", self.handlers.today))
-        app.add_handler(CommandHandler("tomorrow", self.handlers.today))
+        app.add_handler(CommandHandler("tomorrow", self.handlers.tomorrow))
         app.add_handler(CommandHandler("tasks", self.handlers.tasks))
+        app.add_handler(CommandHandler("reminders", self.handlers.reminders))
+        app.add_handler(CommandHandler("remind", self.handlers.remind))
         app.add_handler(CommandHandler("add", self.handlers.add_task))
         app.add_handler(CommandHandler("done", self.handlers.done))
         app.add_handler(CommandHandler("car", self.handlers.car))
@@ -56,6 +58,7 @@ class MohaMindBot:
         app.add_handler(CommandHandler("review", self.handlers.review))
         app.add_handler(CommandHandler("note", self.handlers.note))
         app.add_handler(CommandHandler("week", self.handlers.week))
+        app.add_handler(CommandHandler("radar", self.handlers.radar))
 
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handlers.message))
 

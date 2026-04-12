@@ -4,6 +4,7 @@ Orchestrates the banner, input, spinner, display, and agent
 into a seamless terminal experience.
 """
 
+import asyncio
 from pathlib import Path
 
 from rich.console import Console
@@ -17,7 +18,10 @@ from moha_mind.agent.memory import MemoryManager
 from moha_mind.cli.banner import build_banner
 from moha_mind.cli.commands import Command, CommandRegistry
 from moha_mind.cli.display import (
+    display_attention_radar,
     display_briefing,
+    display_calendar_snapshot,
+    display_command_center,
     display_error,
     display_expiring,
     display_help,
@@ -53,6 +57,12 @@ class MohaMindCLI:
             Command(name="quit", description="Exit MohaMind", aliases=["exit"], handler=self._cmd_quit)
         )
         self.registry.register(Command(name="tasks", description="Show active tasks", handler=self._cmd_tasks))
+        self.registry.register(
+            Command(name="reminders", description="Show scheduled reminders", handler=self._cmd_reminders)
+        )
+        self.registry.register(
+            Command(name="remind", description="Set a timed reminder", handler=self._cmd_remind)
+        )
         self.registry.register(
             Command(name="briefing", description="Generate morning briefing", handler=self._cmd_briefing)
         )
@@ -105,6 +115,20 @@ class MohaMindCLI:
         )
         self.registry.register(Command(name="today", description="Show today's overview", handler=self._cmd_today))
         self.registry.register(
+            Command(name="radar", description="Show ranked attention radar", handler=self._cmd_radar)
+        )
+        self.registry.register(
+            Command(name="calendar", description="Show calendar integrations", handler=self._cmd_calendar)
+        )
+        self.registry.register(
+            Command(
+                name="majlis",
+                description="Open MohaMind command center",
+                aliases=["hq", "deck"],
+                handler=self._cmd_majlis,
+            )
+        )
+        self.registry.register(
             Command(
                 name="provider", description="Switch LLM provider: /provider zai|openai", handler=self._cmd_provider
             )
@@ -135,6 +159,34 @@ class MohaMindCLI:
             self.console.print(display_success("No active tasks - you're all caught up! 🎉"))
         else:
             self.console.print(display_tasks(active, self._current_mood()))
+        return None
+
+    async def _cmd_reminders(self, args: str = "") -> str | None:
+        from moha_mind.mcp_servers.reminders.server import ReminderServer
+
+        days_ahead = 14
+        if args.strip().isdigit():
+            days_ahead = int(args.strip())
+
+        server = ReminderServer(self.memory)
+        result = await server._list_reminders(days_ahead=days_ahead)
+        self.console.print(display_calendar_snapshot(result, self._current_mood()))
+        return None
+
+    async def _cmd_remind(self, args: str = "") -> str | None:
+        if not args.strip():
+            self.console.print(display_error("Usage: /remind <message with date/time>"))
+            return None
+
+        response = await self.agent.chat(
+            (
+                "Set a timed reminder for this request. "
+                "Convert any relative date/time into an exact Asia/Riyadh datetime and use the reminder tools: "
+                f"{args.strip()}"
+            ),
+            chat_id="cli",
+        )
+        self.console.print(display_response(response, self._current_mood()))
         return None
 
     async def _cmd_briefing(self, args: str = "") -> str | None:
@@ -184,6 +236,7 @@ class MohaMindCLI:
             "profile",
             "family",
             "tasks",
+            "reminders",
             "occasions",
             "vehicle",
             "finances",
@@ -446,6 +499,99 @@ class MohaMindCLI:
         )
         return None
 
+    async def _cmd_radar(self, args: str = "") -> str | None:
+        from moha_mind.mcp_servers.attention.server import AttentionServer
+
+        server = AttentionServer(self.memory)
+        radar = await server._get_attention_radar(days_ahead=30, limit=8)
+        self.console.print(display_attention_radar(radar, self._current_mood()))
+        return None
+
+    async def _calendar_snapshot(self, days_ahead: int = 3) -> str:
+        sections = []
+
+        try:
+            from moha_mind.mcp_servers.google_calendar.server import GoogleCalendarServer
+
+            google_text = await GoogleCalendarServer(self.memory)._list_events(days_ahead=days_ahead)
+            sections.append(f"### Google Calendar\n{google_text}")
+        except Exception as e:
+            sections.append(f"### Google Calendar\nUnavailable: {e}")
+
+        try:
+            from moha_mind.mcp_servers.microsoft_graph.server import MicrosoftGraphServer
+
+            ms_text = await MicrosoftGraphServer(self.memory)._list_calendar_events(days_ahead=days_ahead)
+            sections.append(f"### Microsoft Calendar\n{ms_text}")
+        except Exception as e:
+            sections.append(f"### Microsoft Calendar\nUnavailable: {e}")
+
+        return "\n\n".join(sections)
+
+    async def _cmd_calendar(self, args: str = "") -> str | None:
+        days_ahead = 3
+        if args.strip().isdigit():
+            days_ahead = int(args.strip())
+
+        snapshot = await self._calendar_snapshot(days_ahead=days_ahead)
+        self.console.print(display_calendar_snapshot(snapshot, self._current_mood()))
+        return None
+
+    async def _cmd_majlis(self, args: str = "") -> str | None:
+        from moha_mind.mcp_servers.attention.server import AttentionServer
+        from moha_mind.mcp_servers.family.server import FamilyServer
+        from moha_mind.mcp_servers.life_tracker.server import LifeTrackerServer
+        from moha_mind.mcp_servers.social.server import SocialServer
+
+        attention_server = AttentionServer(self.memory)
+        family_server = FamilyServer(self.memory)
+        life_server = LifeTrackerServer(self.memory)
+        social_server = SocialServer(self.memory)
+
+        from moha_mind.mcp_servers.reminders.server import ReminderServer
+
+        reminder_server = ReminderServer(self.memory)
+
+        radar, family, finance, neglected, birthdays, calendar, reminder_queue = await asyncio.gather(
+            attention_server._get_attention_radar(days_ahead=14, limit=6),
+            family_server._get_upcoming(days_ahead=14),
+            life_server._finance_get_upcoming(days_ahead=14),
+            social_server._get_neglected(days_threshold=30),
+            social_server._get_upcoming_birthdays(days_ahead=30),
+            self._calendar_snapshot(days_ahead=3),
+            reminder_server._list_reminders(days_ahead=14),
+        )
+
+        active_tasks = [t for t in self.memory.get_task_section() if not t["done"]]
+        task_lines = ["### Mission Board"]
+        if active_tasks:
+            for task in active_tasks[:6]:
+                due_info = f" (due {task['due']})" if task["due"] else ""
+                task_lines.append(f"- [{task['priority'].upper()}] {task['text']}{due_info}")
+        else:
+            task_lines.append("- No active tasks.")
+
+        expiring = self.memory.get_expiring_items(14)
+        expiry_lines = ["### Expiry Watch"]
+        if expiring:
+            for item in expiring[:6]:
+                expiry_lines.append(f"- [{item['days_left']}d] {item['detail']}")
+        else:
+            expiry_lines.append("- Nothing expiring soon.")
+
+        sections = [
+            {"title": "🎯 Attention Radar", "body": radar},
+            {"title": "🗓 Calendar Horizon", "body": calendar},
+            {"title": "⏰ Reminder Queue", "body": reminder_queue},
+            {"title": "📋 Mission Board", "body": "\n".join(task_lines)},
+            {"title": "⏰ Expiry Watch", "body": "\n".join(expiry_lines)},
+            {"title": "👨‍👩‍👧‍👦 Family Orbit", "body": family},
+            {"title": "📱 Social Pulse", "body": f"{neglected}\n\n{birthdays}"},
+            {"title": "💰 Money Horizon", "body": finance},
+        ]
+        self.console.print(display_command_center(sections, self._current_mood()))
+        return None
+
     async def _cmd_provider(self, args: str = "") -> str | None:
         from rich.prompt import Prompt
 
@@ -575,6 +721,9 @@ class MohaMindCLI:
             expiring_count=len(expiring),
             mood=self._current_mood(),
             uptime_hint=time_display,
+            telegram_enabled=bool(settings.telegram_bot_token),
+            google_enabled=Path(settings.google_credentials_path).exists() or Path(settings.google_token_path).exists(),
+            microsoft_enabled=bool(settings.ms_client_id),
         )
         self.console.print(banner)
 

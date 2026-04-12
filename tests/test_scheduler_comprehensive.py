@@ -1,5 +1,6 @@
 """Comprehensive tests for scheduler components."""
 
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from moha_mind.scheduler.expiry_guardian import ExpiryGuardian
 from moha_mind.scheduler.reminder_engine import ReminderEngine
 from moha_mind.scheduler.social_pulse import SocialPulse
+from moha_mind.utils.timezone import now_ksa
 
 
 def _make_mock_bot():
@@ -53,6 +55,47 @@ class TestReminderEngineExtended:
         engine = ReminderEngine(tmp_memory, bot)
         await engine.check_and_remind()
         bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_occasion_reminder_for_tomorrow(self, tmp_memory):
+        tomorrow = (now_ksa() + timedelta(days=1)).strftime("%Y-%m-%d")
+        tmp_memory.write(
+            "occasions",
+            f"# Important Occasions\n\n## Birthdays\n- Sara birthday: {tomorrow}\n",
+        )
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        await engine.check_and_remind()
+        bot.send_message.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_timed_reminder_fires_and_completes(self, tmp_memory):
+        now = now_ksa()
+        remind_at = (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M")
+        event_at = (now + timedelta(minutes=25)).strftime("%Y-%m-%d %H:%M")
+        tmp_memory.add_reminder("Join standup", remind_at=remind_at, event_at=event_at)
+
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        await engine.check_and_remind()
+
+        bot.send_message.assert_called()
+        reminders = tmp_memory.get_reminder_section(include_completed=True)
+        assert any(r["text"] == "Join standup" and r["done"] for r in reminders)
+
+    @pytest.mark.asyncio
+    async def test_recurring_reminder_reschedules(self, tmp_memory):
+        now = now_ksa()
+        remind_at = (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M")
+        event_at = (now + timedelta(minutes=25)).strftime("%Y-%m-%d %H:%M")
+        tmp_memory.add_reminder("Daily vitamins", remind_at=remind_at, event_at=event_at, repeat="daily")
+
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        await engine.check_and_remind()
+
+        reminders = tmp_memory.get_reminder_section()
+        assert any(r["text"] == "Daily vitamins" and r["repeat"] == "daily" and not r["done"] for r in reminders)
 
     @pytest.mark.asyncio
     async def test_sent_reminders_dedup(self, tmp_memory):

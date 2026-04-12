@@ -144,6 +144,23 @@ class TestDisplay:
         panel = display_briefing("Today is great", "neutral")
         assert panel is not None
 
+    def test_display_calendar_snapshot(self):
+        from moha_mind.cli.display import display_calendar_snapshot
+
+        panel = display_calendar_snapshot("### Google Calendar\n- Team sync")
+        assert panel is not None
+
+    def test_display_command_center(self):
+        from moha_mind.cli.display import display_command_center
+
+        view = display_command_center(
+            [
+                {"title": "🎯 Attention Radar", "body": "- Submit report"},
+                {"title": "🗓 Calendar Horizon", "body": "- Team sync at 9"},
+            ]
+        )
+        assert view is not None
+
     def test_display_tasks_empty(self):
         from moha_mind.cli.display import display_tasks
 

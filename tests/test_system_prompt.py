@@ -31,6 +31,8 @@ class TestBuildSystemPrompt:
         assert "save_memory" in prompt
         assert "search_memory" in prompt
         assert "add_task" in prompt
+        assert "add_reminder" in prompt
+        assert "get_attention_radar" in prompt
 
     def test_contains_behavior_rules(self, memory):
         prompt = build_system_prompt(memory)

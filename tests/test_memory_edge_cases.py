@@ -92,6 +92,7 @@ class TestMemoryEdgeCases:
 
         assert (tmp_path / "profile.md").exists()
         assert (tmp_path / "tasks.md").exists()
+        assert (tmp_path / "reminders.md").exists()
         assert (tmp_path / "family.md").exists()
 
     def test_list_notes_empty(self, tmp_memory):

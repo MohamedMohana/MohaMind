@@ -102,6 +102,55 @@ class TestMemoryManager:
         result = memory.complete_task("nonexistent task")
         assert result is False
 
+    def test_add_reminder(self, memory):
+        memory.write("reminders", "# Reminders\n\n## Scheduled\n")
+        memory.add_reminder(
+            "Call Ahmad",
+            remind_at="2026-04-13 09:00",
+            event_at="2026-04-13 09:30",
+            repeat="none",
+        )
+        content = memory.read("reminders")
+        assert "Call Ahmad" in content
+        assert "remind_at:2026-04-13 09:00" in content
+
+    def test_get_reminder_section(self, memory):
+        memory.write(
+            "reminders",
+            "# Reminders\n\n## Scheduled\n"
+            "- [ ] Call Ahmad | remind_at:2026-04-13 09:00 | event_at:2026-04-13 09:30 | repeat:none\n",
+        )
+        reminders = memory.get_reminder_section()
+        assert len(reminders) == 1
+        assert reminders[0]["text"] == "Call Ahmad"
+        assert reminders[0]["event_at"] == "2026-04-13 09:30"
+
+    def test_complete_reminder(self, memory):
+        memory.write(
+            "reminders",
+            "# Reminders\n\n## Scheduled\n- [ ] Pay bill | remind_at:2026-04-13 08:00 | repeat:none\n",
+        )
+        result = memory.complete_reminder("Pay bill", remind_at="2026-04-13 08:00")
+        assert result is True
+        assert "- [x] Pay bill" in memory.read("reminders")
+
+    def test_reschedule_reminder(self, memory):
+        memory.write(
+            "reminders",
+            "# Reminders\n\n## Scheduled\n"
+            "- [ ] Gym | remind_at:2026-04-13 06:00 | event_at:2026-04-13 07:00 | repeat:weekly\n",
+        )
+        result = memory.reschedule_reminder(
+            "Gym",
+            current_remind_at="2026-04-13 06:00",
+            new_remind_at="2026-04-20 06:00",
+            new_event_at="2026-04-20 07:00",
+        )
+        assert result is True
+        content = memory.read("reminders")
+        assert "2026-04-20 06:00" in content
+        assert "2026-04-20 07:00" in content
+
     def test_get_expiring_items(self, memory):
         from datetime import timedelta
 
@@ -115,7 +164,7 @@ class TestMemoryManager:
 
     def test_ensure_templates(self, memory):
         memory.ensure_templates()
-        for category in ["profile", "tasks", "vehicle", "finances", "health", "home", "documents"]:
+        for category in ["profile", "tasks", "reminders", "vehicle", "finances", "health", "home", "documents"]:
             content = memory.read(category)
             assert content != "", f"Template for {category} should exist"
 

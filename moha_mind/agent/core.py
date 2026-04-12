@@ -5,8 +5,9 @@ Supports z.ai (Zhipu GLM), OpenAI, and automatic fallback.
 All providers use the OpenAI-compatible API format.
 """
 
+import inspect
 import json
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal, get_args, get_origin
 
 from openai import AsyncOpenAI
 
@@ -42,8 +43,72 @@ class MohaMindAgent:
         self._tool_handlers[name] = handler
         log.info(f"Tool registered: {name}")
 
-    def get_tools_schema(self) -> list[dict]:
-        """Get the JSON schema for all available tools (OpenAI function calling format)."""
+    def _annotation_to_schema(self, annotation: Any) -> dict:
+        if annotation is inspect.Signature.empty:
+            return {"type": "string"}
+
+        origin = get_origin(annotation)
+        args = get_args(annotation)
+
+        if origin is Literal:
+            return {"type": "string", "enum": list(args)}
+
+        if origin in (list, set, tuple):
+            item_schema = self._annotation_to_schema(args[0]) if args else {"type": "string"}
+            return {"type": "array", "items": item_schema}
+
+        if origin is dict:
+            return {"type": "object"}
+
+        if args and type(None) in args:
+            non_null = [arg for arg in args if arg is not type(None)]
+            if non_null:
+                return self._annotation_to_schema(non_null[0])
+
+        mapping = {
+            str: {"type": "string"},
+            int: {"type": "integer"},
+            float: {"type": "number"},
+            bool: {"type": "boolean"},
+        }
+        return mapping.get(annotation, {"type": "string"})
+
+    def _infer_tool_description(self, name: str, handler: Callable[..., Awaitable[str]]) -> str:
+        doc = inspect.getdoc(handler)
+        if doc:
+            first_line = doc.splitlines()[0].strip()
+            if first_line:
+                return first_line.rstrip(".")
+        return name.replace("_", " ").strip().capitalize()
+
+    def _build_dynamic_tool_schema(self, name: str, handler: Callable[..., Awaitable[str]]) -> dict:
+        properties = {}
+        required = []
+
+        for param in inspect.signature(handler).parameters.values():
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            properties[param.name] = self._annotation_to_schema(param.annotation)
+            if param.default is inspect.Signature.empty:
+                required.append(param.name)
+
+        parameters = {
+            "type": "object",
+            "properties": properties,
+        }
+        if required:
+            parameters["required"] = required
+
+        return {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": self._infer_tool_description(name, handler),
+                "parameters": parameters,
+            },
+        }
+
+    def _base_tools_schema(self) -> list[dict]:
         return [
             {
                 "type": "function",
@@ -168,7 +233,7 @@ class MohaMindAgent:
                 "type": "function",
                 "function": {
                     "name": "get_calendar_events",
-                    "description": "Get today's calendar events from Google and Microsoft calendars",
+                    "description": "Get calendar events from Google Calendar",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -244,6 +309,18 @@ class MohaMindAgent:
                 },
             },
         ]
+
+    def get_tools_schema(self) -> list[dict]:
+        """Get the JSON schema for all available tools (OpenAI function calling format)."""
+        schemas = self._base_tools_schema()
+        known_names = {schema["function"]["name"] for schema in schemas}
+
+        for name, handler in self._tool_handlers.items():
+            if name in known_names:
+                continue
+            schemas.append(self._build_dynamic_tool_schema(name, handler))
+
+        return schemas
 
     async def handle_tool_call(self, tool_name: str, arguments: dict) -> str:
         """Handle a tool call from the LLM."""

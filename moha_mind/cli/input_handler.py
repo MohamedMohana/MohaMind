@@ -42,12 +42,15 @@ class InputHandler:
 
         self.completer = SlashCompleter(commands or [])
         self.session: PromptSession | None = None
+        self._session_signature: str | None = None
 
     def _get_session(self, mood: str = "neutral") -> PromptSession:
-        if self.session is None:
+        theme = get_theme(mood)
+        signature = f"{theme['primary']}:{theme.get('prompt_label', 'mohamind')}"
+
+        if self.session is None or self._session_signature != signature:
             from prompt_toolkit.styles import Style as PTStyle
 
-            theme = get_theme(mood)
             style = PTStyle.from_dict(
                 {
                     "prompt": f"bold {theme['primary']}",
@@ -63,13 +66,15 @@ class InputHandler:
                 multiline=False,
                 enable_open_in_editor=True,
             )
+            self._session_signature = signature
         return self.session
 
     async def get_input(self, mood: str = "neutral") -> str:
         session = self._get_session(mood)
+        prompt_label = get_theme(mood).get("prompt_label", "mohamind")
         try:
             result = await session.prompt_async(
-                message=[("class:prompt", "🧠 you > ")],
+                message=[("class:prompt", f"◐ {prompt_label} > ")],
             )
             return result.strip()
         except (EOFError, KeyboardInterrupt):
@@ -77,9 +82,10 @@ class InputHandler:
 
     def get_input_sync(self, mood: str = "neutral") -> str:
         session = self._get_session(mood)
+        prompt_label = get_theme(mood).get("prompt_label", "mohamind")
         try:
             result = session.prompt(
-                message=[("class:prompt", "🧠 you > ")],
+                message=[("class:prompt", f"◐ {prompt_label} > ")],
             )
             return result.strip()
         except (EOFError, KeyboardInterrupt):
