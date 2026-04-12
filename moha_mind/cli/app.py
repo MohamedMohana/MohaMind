@@ -4,6 +4,8 @@ Orchestrates the banner, input, spinner, display, and agent
 into a seamless terminal experience.
 """
 
+from pathlib import Path
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -102,6 +104,17 @@ class MohaMindCLI:
             Command(name="note", description="Save a note: /note <title>", aliases=["notes"], handler=self._cmd_note)
         )
         self.registry.register(Command(name="today", description="Show today's overview", handler=self._cmd_today))
+        self.registry.register(
+            Command(
+                name="provider", description="Switch LLM provider: /provider zai|openai", handler=self._cmd_provider
+            )
+        )
+        self.registry.register(
+            Command(name="model", description="Change model: /model <name>", handler=self._cmd_model)
+        )
+        self.registry.register(
+            Command(name="key", description="Update API key for current provider", handler=self._cmd_key)
+        )
 
         self.input = InputHandler(self.registry.get_completions())
 
@@ -431,6 +444,92 @@ class MohaMindCLI:
         self.console.print(
             Panel("\n".join(parts), title="📅 Today", border_style=theme["panel_border"], padding=(1, 2))
         )
+        return None
+
+    async def _cmd_provider(self, args: str = "") -> str | None:
+        from rich.prompt import Prompt
+
+        if args.strip() in ("zai", "openai"):
+            provider = args.strip()
+        else:
+            self.console.print("\n  [bold]Switch LLM provider:[/]")
+            self.console.print("  [cyan]zai[/]     z.ai (Zhipu GLM-4)")
+            self.console.print("  [cyan]openai[/]  OpenAI (GPT)")
+            provider = Prompt.ask(
+                "  Provider", choices=["zai", "openai"], default=self.agent.provider, console=self.console
+            )
+
+        if provider == "zai":
+            from moha_mind.config import settings as s
+
+            self.agent.client.base_url = s.zai_base_url
+            self.agent.model = s.zai_model
+            self.agent.provider = "zai"
+        else:
+            self.agent.client.base_url = None
+            from moha_mind.config import settings as s
+
+            self.agent.model = s.openai_model
+            self.agent.provider = "openai"
+
+        env_path = Path(".env")
+        if env_path.exists():
+            file_lines = env_path.read_text().splitlines()
+            updated = []
+            for line in file_lines:
+                if line.startswith("PRIMARY_LLM="):
+                    updated.append(f"PRIMARY_LLM={provider}")
+                else:
+                    updated.append(line)
+            env_path.write_text("\n".join(updated) + "\n")
+
+        self.console.print(display_success(f"Switched to {provider} ({self.agent.model})"))
+        return None
+
+    async def _cmd_model(self, args: str = "") -> str | None:
+        if not args.strip():
+            self.console.print(display_error("Usage: /model <model-name>"))
+            self.console.print(f"  Current: [bold]{self.agent.model}[/]")
+            return None
+
+        new_model = args.strip()
+        old_model = self.agent.model
+        self.agent.model = new_model
+        self.console.print(display_success(f"Model changed: {old_model} → {new_model}"))
+        return None
+
+    async def _cmd_key(self, args: str = "") -> str | None:
+        from rich.prompt import Prompt
+
+        provider = self.agent.provider
+        key_name = "z.ai" if provider == "zai" else "OpenAI"
+        env_key = "ZAI_API_KEY" if provider == "zai" else "OPENAI_API_KEY"
+        url = "https://open.bigmodel.cn" if provider == "zai" else "https://platform.openai.com/api-keys"
+
+        self.console.print(f"\n  Update {key_name} API key")
+        self.console.print(f"  Get from [bold cyan]{url}[/]")
+        new_key = Prompt.ask(f"  {key_name} key", console=self.console)
+
+        if not new_key.strip():
+            self.console.print(display_error("No key provided."))
+            return None
+
+        env_path = Path(".env")
+        file_lines = env_path.read_text().splitlines() if env_path.exists() else []
+        updated = False
+        new_lines = []
+        for line in file_lines:
+            if line.startswith(f"{env_key}="):
+                new_lines.append(f"{env_key}={new_key.strip()}")
+                updated = True
+            else:
+                new_lines.append(line)
+        if not updated:
+            new_lines.append(f"{env_key}={new_key.strip()}")
+        env_path.write_text("\n".join(new_lines) + "\n")
+
+        self.agent.client.api_key = new_key.strip()
+        self.console.print(display_success(f"{key_name} API key updated!"))
         return None
 
     def _current_mood(self) -> str:

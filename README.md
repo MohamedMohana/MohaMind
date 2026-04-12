@@ -48,11 +48,20 @@ The setup wizard will:
 ### Run
 
 ```bash
-# Start with Telegram bot (requires Telegram config)
+# Start MohaMind (opens interactive CLI - the default)
 uv run mohamind
 
-# Interactive CLI mode (no Telegram needed)
-uv run mohamind --cli
+# Start with an initial message
+uv run mohamind "What tasks are due this week?"
+
+# One-shot mode (print answer, exit)
+uv run mohamind -p "Summarize my upcoming expirations"
+
+# Start Telegram bot daemon (headless, no CLI)
+uv run mohamind --bot
+
+# CLI + Telegram bot together
+uv run mohamind --all
 
 # Check your configuration
 uv run mohamind doctor
@@ -63,7 +72,32 @@ uv run mohamind setup
 
 ### First-Run Experience
 
-If no `.env` file exists, MohaMind automatically detects it's your first run and offers to launch the setup wizard. No manual config file editing needed.
+When you first run `mohamind`, it detects no API key and shows a quick inline auth dialog:
+
+```
+╭──────────────────────────────────────────────╮
+│  Welcome to MohaMind!                        │
+│                                              │
+│  No API key found. Let's get you set up.     │
+│  Your key is saved to .env (never committed).│
+╰──────────────────────────────────────────────╯
+
+  Choose your AI provider:
+  1 z.ai (GLM-4) - recommended
+  2 OpenAI (GPT)
+  Choice [1]: 1
+
+  Get your key from https://open.bigmodel.cn
+  z.ai API key: sk-xxxxx
+
+  Your timezone [Asia/Riyadh]:
+
+  ✅ Saved! You're ready to go.
+
+  Configure Telegram bot? (optional) [y/N]:
+```
+
+No manual config editing. Just run `mohamind` and go.
 
 ---
 
@@ -192,17 +226,23 @@ MohaMind/
 | `/config` | Show current configuration |
 | `/setup` | Re-run setup wizard |
 | `/doctor` | Check configuration health |
+| `/provider zai\|openai` | Switch LLM provider (live, no restart) |
+| `/model <name>` | Change model (live, no restart) |
+| `/key` | Update API key for current provider |
 | `/clear` | Clear screen |
 | `/quit` | Exit MohaMind |
 
 ### Terminal Commands
 
 ```bash
-mohamind              # Start Telegram bot + scheduler
-mohamind --cli        # Interactive CLI mode (no Telegram needed)
-mohamind setup        # Interactive setup wizard
-mohamind setup --quick # Quick setup (only required fields)
-mohamind doctor       # Check configuration health
+mohamind                # Interactive CLI (default)
+mohamind "query"        # Start with initial message
+mohamind -p "query"     # One-shot: print answer and exit
+mohamind --bot          # Telegram bot daemon (headless)
+mohamind --all          # CLI + Telegram bot together
+mohamind setup          # Interactive setup wizard
+mohamind setup --quick  # Quick setup (only required fields)
+mohamind doctor         # Check configuration health
 ```
 
 ### Telegram Bot Commands
