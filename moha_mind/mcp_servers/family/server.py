@@ -149,7 +149,21 @@ class FamilyServer:
 
     async def _get_vaccination_schedule(self, age_months: Optional[int] = None) -> str:
         if age_months is not None:
-            relevant = [s for s in VACCINATION_SCHEDULE if age_months <= 12]
+            age_order = [
+                "birth",
+                "2 months",
+                "4 months",
+                "6 months",
+                "12 months",
+                "15 months",
+                "18 months",
+                "4-6 years",
+            ]
+            relevant = []
+            for schedule in VACCINATION_SCHEDULE:
+                sched_idx = next((i for i, a in enumerate(age_order) if a == schedule["age"]), 0)
+                if sched_idx <= age_months // 2 + 2:
+                    relevant.append(schedule)
         else:
             relevant = VACCINATION_SCHEDULE
         lines = []

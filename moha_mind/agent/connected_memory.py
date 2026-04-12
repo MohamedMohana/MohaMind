@@ -205,7 +205,7 @@ class ConnectedMemory:
                 existing = self.memory.read("relationships")
                 if "## Gift Ideas" in existing:
                     self.memory.append_to_section("relationships", "Gift Ideas", f"- ({person_keyword}) {text.strip()}")
-                actions.append(f"Connected: Stored as gift idea for {person_keyword}")
+                    actions.append(f"Connected: Stored as gift idea for {person_keyword}")
                 break
         return actions
 

@@ -11,13 +11,12 @@ Constructs the system prompt dynamically based on:
 """
 
 from moha_mind.agent.memory import MemoryManager
-from moha_mind.utils.timezone import ksa_date_display, ksa_day_name, ksa_time_str, now_ksa
+from moha_mind.utils.timezone import ksa_date_display, ksa_day_name, ksa_time_str
 
 
 def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
     """Build the full system prompt with live memory context."""
 
-    now_ksa()
     date_str = ksa_date_display()
     time_str = ksa_time_str()
     day_name = ksa_day_name()

@@ -71,7 +71,8 @@ class ReminderEngine:
                         continue
 
         if len(self._sent_reminders) > 200:
-            self._sent_reminders = set(list(self._sent_reminders)[-100:])
+            sent = list(self._sent_reminders)
+            self._sent_reminders = set(sent[-100:])
 
         if reminders:
             message = "⏰ Reminders:\n\n" + "\n".join(f"- {r}" for r in reminders)

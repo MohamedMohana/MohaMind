@@ -97,7 +97,7 @@ class LifeTrackerServer:
                 if days_until_due <= days_ahead:
                     urgency = "🔴" if days_until_due <= 3 else "🟡" if days_until_due <= 7 else "🟢"
                     lines.append(f"{urgency} {line.strip()} ({days_until_due}d)")
-        return "\n".join(lines) if lines else "No upcoming bills in the next {days_ahead} days"
+        return "\n".join(lines) if lines else f"No upcoming bills in the next {days_ahead} days"
 
     async def _finance_add_subscription(self, service: str, amount: str, renews_day: str) -> str:
         entry = f"- [{service}] {amount}/month - Renews: {renews_day}"

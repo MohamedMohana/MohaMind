@@ -87,8 +87,8 @@ class GoogleCalendarServer:
                 service.events()
                 .list(
                     calendarId=calendar_id,
-                    timeMin=now.isoformat() + "+03:00",
-                    timeMax=end.isoformat() + "+03:00",
+                    timeMin=now.isoformat(),
+                    timeMax=end.isoformat(),
                     singleEvents=True,
                     orderBy="startTime",
                 )

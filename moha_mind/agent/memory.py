@@ -40,7 +40,8 @@ class MemoryManager:
 
     def read(self, category: str) -> str:
         """Read a memory file by category name."""
-        filename = MEMORY_FILES.get(category, f"{category}.md")
+        safe_category = category.replace("..", "").replace("/", "").replace("\\", "")
+        filename = MEMORY_FILES.get(safe_category, f"{safe_category}.md")
         filepath = self.memory_path / filename
         if filepath.exists():
             return filepath.read_text(encoding="utf-8")
@@ -48,7 +49,8 @@ class MemoryManager:
 
     def write(self, category: str, content: str) -> None:
         """Overwrite a memory file."""
-        filename = MEMORY_FILES.get(category, f"{category}.md")
+        safe_category = category.replace("..", "").replace("/", "").replace("\\", "")
+        filename = MEMORY_FILES.get(safe_category, f"{safe_category}.md")
         filepath = self.memory_path / filename
         filepath.parent.mkdir(parents=True, exist_ok=True)
         filepath.write_text(content.strip() + "\n", encoding="utf-8")

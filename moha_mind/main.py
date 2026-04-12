@@ -29,7 +29,7 @@ async def bootstrap() -> tuple[MemoryManager, MohaMindAgent, MohaMindBot, Schedu
     log.info("=" * 50)
 
     Path(settings.memory_dir).mkdir(parents=True, exist_ok=True)
-    Path("credentials").mkdir(exist_ok=True)
+    Path(settings.memory_dir).parent.joinpath("credentials").mkdir(exist_ok=True)
 
     memory = MemoryManager()
     memory.ensure_templates()

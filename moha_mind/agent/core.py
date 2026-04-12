@@ -318,11 +318,6 @@ class MohaMindAgent:
                     self.memory.save_daily_log(arguments["summary"])
                     return "Daily log updated"
 
-                case "get_calendar_events":
-                    if "get_calendar_events" in self._tool_handlers:
-                        return await self._tool_handlers["get_calendar_events"](**arguments)
-                    return "Calendar integration not configured yet"
-
                 case _:
                     return f"Unknown tool: {tool_name}"
 
@@ -356,8 +351,6 @@ class MohaMindAgent:
         system_prompt = build_system_prompt(self.memory)
 
         conversation.append({"role": "user", "content": message})
-
-        self.energy_tracker.log_interaction(message, 0)
 
         max_tool_rounds = 5
         final_response = ""
@@ -423,6 +416,9 @@ class MohaMindAgent:
                 final_response = assistant_message.content or ""
                 conversation.append({"role": "assistant", "content": final_response})
                 break
+
+        if not final_response:
+            final_response = "I processed your request but couldn't generate a final response. Please try again."
 
         if len(conversation) > 50:
             self.conversations[chat_id] = conversation[-30:]
