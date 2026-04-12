@@ -171,16 +171,27 @@ MohaMind/
 | Command | Description |
 |---------|-------------|
 | `/help` | Show all available commands |
+| `/today` | Today's overview (tasks, expiring, time) |
 | `/tasks` | Show active tasks |
+| `/done <text>` | Complete a task |
+| `/add task <text>` | Quick add a task |
+| `/add note <title>` | Quick save a note |
+| `/note <title>` | Save or list notes |
 | `/briefing` | Generate morning briefing |
+| `/review` | Generate weekly life review |
 | `/expiring` | Show expiring items (optional: days) |
 | `/search <query>` | Search across all memories |
 | `/memory` | Show all memory categories with preview |
-| `/review` | Generate weekly life review |
-| `/stats` | Show system stats (model, tasks, mood) |
+| `/family` | Family: upcoming events |
+| `/social` | Social: neglected contacts & birthdays |
+| `/vehicle` | Vehicle info |
+| `/health` | Health: medications & vitals |
+| `/finance` | Finance: upcoming bills & subscriptions |
 | `/mood` | Show energy/mood analysis |
-| `/add task <text>` | Quick add a task |
-| `/add note <title>` | Quick save a note |
+| `/stats` | Show system stats |
+| `/config` | Show current configuration |
+| `/setup` | Re-run setup wizard |
+| `/doctor` | Check configuration health |
 | `/clear` | Clear screen |
 | `/quit` | Exit MohaMind |
 

@@ -6,6 +6,7 @@ into a seamless terminal experience.
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from moha_mind.agent.core import MohaMindAgent
@@ -65,6 +66,42 @@ class MohaMindCLI:
         self.registry.register(
             Command(name="add", description="Quick add: /add task <text> or /add note <title>", handler=self._cmd_add)
         )
+        self.registry.register(
+            Command(
+                name="done",
+                description="Complete a task: /done <task text>",
+                aliases=["complete"],
+                handler=self._cmd_done,
+            )
+        )
+        self.registry.register(
+            Command(name="family", description="Family overview: upcoming events", handler=self._cmd_family)
+        )
+        self.registry.register(
+            Command(name="social", description="Social connections & neglected contacts", handler=self._cmd_social)
+        )
+        self.registry.register(
+            Command(name="vehicle", description="Vehicle info & next service", handler=self._cmd_vehicle)
+        )
+        self.registry.register(
+            Command(name="health", description="Health: medications & vitals", handler=self._cmd_health)
+        )
+        self.registry.register(
+            Command(name="finance", description="Finance: bills & subscriptions", handler=self._cmd_finance)
+        )
+        self.registry.register(
+            Command(name="setup", description="Re-run setup wizard to change config", handler=self._cmd_setup)
+        )
+        self.registry.register(
+            Command(name="doctor", description="Check configuration health", handler=self._cmd_doctor)
+        )
+        self.registry.register(
+            Command(name="config", description="Show current configuration", handler=self._cmd_config)
+        )
+        self.registry.register(
+            Command(name="note", description="Save a note: /note <title>", aliases=["notes"], handler=self._cmd_note)
+        )
+        self.registry.register(Command(name="today", description="Show today's overview", handler=self._cmd_today))
 
         self.input = InputHandler(self.registry.get_completions())
 
@@ -124,8 +161,6 @@ class MohaMindCLI:
         return None
 
     async def _cmd_memory(self, args: str = "") -> str | None:
-        from rich.table import Table
-
         theme = get_theme(self._current_mood())
         table = Table(show_header=True, box=None, padding=(0, 1), expand=True)
         table.add_column("Category", style=f"bold {theme['accent']}", width=16)
@@ -188,8 +223,6 @@ class MohaMindCLI:
         conversations = sum(len(v) for v in self.agent.conversations.values())
         productive_hours = self.energy.get_productive_hours()
 
-        from rich.table import Table
-
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_column(style=theme["accent"], width=20)
         table.add_column(style=theme["primary"])
@@ -222,8 +255,6 @@ class MohaMindCLI:
         theme = get_theme(self._current_mood())
         productive = self.energy.get_productive_hours()
         suggestion = self.energy.get_energy_suggestion()
-
-        from rich.table import Table
 
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_column(style=theme["accent"], width=20)
@@ -265,7 +296,155 @@ class MohaMindCLI:
             self.console.print(display_error("Usage: /add task <text> or /add note <title> [content]"))
         return None
 
+    async def _cmd_done(self, args: str = "") -> str | None:
+        if not args.strip():
+            self.console.print(display_error("Usage: /done <task text>"))
+            return None
+        success = self.memory.complete_task(args.strip())
+        if success:
+            self.console.print(display_success(f"Task completed: {args.strip()} ✅"))
+        else:
+            self.console.print(display_error(f"Task not found: {args.strip()}"))
+        return None
+
+    async def _cmd_note(self, args: str = "") -> str | None:
+        if not args.strip():
+            notes = self.memory.list_notes()
+            if not notes:
+                self.console.print(display_success("No notes saved yet. Use /note <title> to create one."))
+            else:
+                theme = get_theme(self._current_mood())
+                table = Table(show_header=True, box=None, padding=(0, 1))
+                table.add_column("Note", style=f"bold {theme['accent']}")
+                for n in notes:
+                    table.add_row(n)
+                self.console.print(Panel(table, title="📝 Notes", border_style=theme["panel_border"], padding=(1, 2)))
+            return None
+
+        parts = args.strip().split(maxsplit=1)
+        title = parts[0]
+        content = parts[1] if len(parts) > 1 else "(quick note)"
+        path = self.memory.save_note(title, content)
+        self.console.print(display_success(f"Note saved: {path.name}"))
+        return None
+
+    async def _cmd_family(self, args: str = "") -> str | None:
+        from moha_mind.mcp_servers.family.server import FamilyServer
+
+        theme = get_theme(self._current_mood())
+        server = FamilyServer(self.memory)
+        result = await server._get_upcoming(days_ahead=30)
+        self.console.print(Panel(result, title="👨‍👩‍👧‍👦 Family", border_style=theme["panel_border"], padding=(1, 2)))
+        return None
+
+    async def _cmd_social(self, args: str = "") -> str | None:
+        from moha_mind.mcp_servers.social.server import SocialServer
+
+        theme = get_theme(self._current_mood())
+        server = SocialServer(self.memory)
+        neglected = await server._get_neglected(days_threshold=30)
+        birthdays = await server._get_upcoming_birthdays(days_ahead=60)
+
+        combined = f"{neglected}\n\n{birthdays}"
+        self.console.print(Panel(combined, title="📱 Social", border_style=theme["panel_border"], padding=(1, 2)))
+        return None
+
+    async def _cmd_vehicle(self, args: str = "") -> str | None:
+        theme = get_theme(self._current_mood())
+        content = self.memory.read("vehicle")
+        if not content.strip():
+            self.console.print(display_success("No vehicle data yet. Tell me about your car!"))
+        else:
+            self.console.print(Panel(content, title="🚗 Vehicle", border_style=theme["panel_border"], padding=(1, 2)))
+        return None
+
+    async def _cmd_health(self, args: str = "") -> str | None:
+        theme = get_theme(self._current_mood())
+        content = self.memory.read("health")
+        if not content.strip():
+            self.console.print(display_success("No health data yet. Tell me about your medications or vitals!"))
+        else:
+            self.console.print(Panel(content, title="🏥 Health", border_style=theme["panel_border"], padding=(1, 2)))
+        return None
+
+    async def _cmd_finance(self, args: str = "") -> str | None:
+        from moha_mind.mcp_servers.life_tracker.server import LifeTrackerServer
+
+        theme = get_theme(self._current_mood())
+        server = LifeTrackerServer(self.memory)
+        upcoming = await server._finance_get_upcoming(days_ahead=30)
+        self.console.print(Panel(upcoming, title="💰 Finance", border_style=theme["panel_border"], padding=(1, 2)))
+        return None
+
+    async def _cmd_setup(self, args: str = "") -> str | None:
+        from moha_mind.cli.setup_wizard import SetupWizard
+
+        wizard = SetupWizard(self.console)
+        wizard.run(quick="--quick" in args)
+        self.console.print(display_success("Configuration updated! Restart MohaMind for changes to take effect."))
+        return None
+
+    async def _cmd_doctor(self, args: str = "") -> str | None:
+        from moha_mind.cli.setup_wizard import run_doctor
+
+        run_doctor()
+        return None
+
+    async def _cmd_config(self, args: str = "") -> str | None:
+        theme = get_theme(self._current_mood())
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column(style=theme["accent"], width=24)
+        table.add_column(style=theme["primary"])
+
+        table.add_row("LLM Provider:", self.agent.provider)
+        table.add_row("Model:", self.agent.model)
+        table.add_row("Timezone:", settings.timezone)
+        table.add_row("Briefing Time:", settings.morning_briefing_time)
+        table.add_row("Weekly Review:", f"{settings.weekly_review_day} at {settings.weekly_review_time}")
+        table.add_row("Memory Dir:", settings.memory_dir)
+        table.add_row("Telegram:", "Configured" if settings.telegram_bot_token else "Not configured")
+        table.add_row("Google Cal:", "Configured" if settings.google_credentials_path else "Not configured")
+        table.add_row("MS Graph:", "Configured" if settings.ms_client_id else "Not configured")
+
+        self.console.print(Panel(table, title="⚙️ Configuration", border_style=theme["panel_border"], padding=(1, 2)))
+        return None
+
+    async def _cmd_today(self, args: str = "") -> str | None:
+        theme = get_theme(self._current_mood())
+        tasks = self.memory.get_task_section()
+        active = [t for t in tasks if not t["done"]]
+        expiring = self.memory.get_expiring_items(7)
+
+        parts = []
+        parts.append(f"📋 **{len(active)} active tasks**")
+        for t in active[:5]:
+            due_info = f" (due {t['due']})" if t["due"] else ""
+            parts.append(f"  - [{t['priority'].upper()}] {t['text']}{due_info}")
+
+        if expiring:
+            parts.append(f"\n⏰ **{len(expiring)} items expiring within 7 days**")
+            for item in expiring[:5]:
+                parts.append(f"  - {item['category']}: {item['detail']} ({item['days_left']}d)")
+
+        parts.append(f"\n🕐 {ksa_date_display()} • {ksa_time_str()}")
+
+        self.console.print(
+            Panel("\n".join(parts), title="📅 Today", border_style=theme["panel_border"], padding=(1, 2))
+        )
+        return None
+
     def _current_mood(self) -> str:
+        recent = self.memory.read("energy_log")
+        if not recent.strip():
+            return "neutral"
+        lines = [ln for ln in recent.strip().split("\n") if ln.strip() and not ln.startswith("#")]
+        if not lines:
+            return "neutral"
+        last_line = lines[-1].lower()
+        if any(w in last_line for w in ["high", "great", "awesome", "happy", "excited", "productive"]):
+            return "high"
+        if any(w in last_line for w in ["low", "tired", "stressed", "sick", "overwhelmed"]):
+            return "low"
         return "neutral"
 
     def _show_status(self) -> None:
