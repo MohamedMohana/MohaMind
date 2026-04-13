@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mohamind"
 version = "0.1.0"
@@ -35,6 +39,9 @@ mohamind = "moha_mind.main:run"
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+
+[tool.setuptools.packages.find]
+include = ["moha_mind*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
