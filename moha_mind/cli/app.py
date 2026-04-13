@@ -70,6 +70,13 @@ class MohaMindCLI:
         self.registry.register(
             Command(name="search", description="Search memory: /search <query>", handler=self._cmd_search)
         )
+        self.registry.register(
+            Command(
+                name="recall",
+                description="Search memory and past conversations: /recall <query>",
+                handler=self._cmd_recall,
+            )
+        )
         self.registry.register(Command(name="memory", description="Show memory categories", handler=self._cmd_memory))
         self.registry.register(Command(name="review", description="Generate weekly review", handler=self._cmd_review))
         self.registry.register(Command(name="stats", description="Show system stats", handler=self._cmd_stats))
@@ -225,6 +232,19 @@ class MohaMindCLI:
             self.console.print(display_memory_search(results, self._current_mood()))
         return None
 
+    async def _cmd_recall(self, args: str = "") -> str | None:
+        query = args.strip()
+        if not query:
+            self.console.print(display_error("Usage: /recall <query>"))
+            return None
+
+        theme = get_theme(self._current_mood())
+        recalled = self.agent.recall(query, chat_id="cli")
+        self.console.print(
+            Panel(recalled, title="🧠 Recall", title_align="left", border_style=theme["panel_border"], padding=(1, 2))
+        )
+        return None
+
     async def _cmd_memory(self, args: str = "") -> str | None:
         theme = get_theme(self._current_mood())
         table = Table(show_header=True, box=None, padding=(0, 1), expand=True)
@@ -286,7 +306,7 @@ class MohaMindCLI:
         tasks = self.memory.get_task_section()
         active = [t for t in tasks if not t["done"]]
         expiring = self.memory.get_expiring_items(90)
-        conversations = sum(len(v) for v in self.agent.conversations.values())
+        conversations = self.agent.session_store.count_messages()
         productive_hours = self.energy.get_productive_hours()
 
         table = Table(show_header=False, box=None, padding=(0, 2))
@@ -764,6 +784,21 @@ class MohaMindCLI:
 
         self.show_banner()
         self._show_status()
+        recent = self.agent.session_store.load_recent_messages("cli", limit=4)
+        if recent:
+            theme = get_theme(self._current_mood())
+            recap_lines = []
+            for item in recent:
+                recap_lines.append(f"{item['role']}: {self.agent._truncate_text(item['content'], 120)}")
+            self.console.print(
+                Panel(
+                    "\n".join(recap_lines),
+                    title="↺ Previous Conversation",
+                    title_align="left",
+                    border_style=theme["panel_border"],
+                    padding=(1, 2),
+                )
+            )
 
         while self._running:
             try:

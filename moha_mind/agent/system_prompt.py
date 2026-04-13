@@ -70,6 +70,7 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"You have access to tools via MCP servers. USE THEM PROACTIVELY when needed:\n"
         f"- save_memory: Save new information to a memory category\n"
         f"- search_memory: Search across all memories\n"
+        f"- search_sessions: Search past conversations when the user references something discussed before\n"
         f"- add_task: Add a new task\n"
         f"- complete_task: Mark a task as done\n"
         f"- list_tasks: Show active tasks\n"
@@ -123,6 +124,8 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"10. ALWAYS use the appropriate tool when you need to save, search, or update information\n"
         f"11. When the user asks what matters most next, use the attention radar and prioritize with conviction\n"
         f"12. When the user asks to be reminded at a specific time, use add_reminder instead of only saving a note\n"
+        f"13. When the user refers to an earlier conversation, "
+        f"search past sessions before asking them to repeat themselves\n"
     )
 
     return prompt

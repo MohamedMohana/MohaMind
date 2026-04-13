@@ -7,6 +7,7 @@ All providers use the OpenAI-compatible API format.
 
 import inspect
 import json
+import re
 from typing import Any, Awaitable, Callable, Literal, get_args, get_origin
 
 from openai import AsyncOpenAI
@@ -14,6 +15,7 @@ from openai import AsyncOpenAI
 from moha_mind.agent.connected_memory import ConnectedMemory
 from moha_mind.agent.energy_tracker import EnergyTracker
 from moha_mind.agent.memory import MemoryManager
+from moha_mind.agent.session_store import SessionStore
 from moha_mind.agent.system_prompt import build_system_prompt
 from moha_mind.config import settings
 from moha_mind.utils.logging_config import log
@@ -22,6 +24,7 @@ from moha_mind.utils.logging_config import log
 class MohaMindAgent:
     def __init__(self, memory: MemoryManager):
         self.memory = memory
+        self.session_store = SessionStore(memory.memory_path)
         self.connected_memory = ConnectedMemory(memory)
         self.energy_tracker = EnergyTracker(memory)
 
@@ -151,6 +154,31 @@ class MohaMindAgent:
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": "Optional: specific categories to search",
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_sessions",
+                    "description": "Search past conversation history for relevant details",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query for past conversations",
+                            },
+                            "chat_id": {
+                                "type": "string",
+                                "description": "Optional: limit the search to a specific chat or platform thread",
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results to return",
                             },
                         },
                         "required": ["query"],
@@ -350,6 +378,16 @@ class MohaMindAgent:
                         return "No results found"
                     return "\n".join(f"[{r['category']}:{r['line_number']}] {r['context']}" for r in results[:10])
 
+                case "search_sessions":
+                    results = self.session_store.search_messages(
+                        query=arguments["query"],
+                        chat_id=arguments.get("chat_id"),
+                        limit=arguments.get("limit", 5),
+                    )
+                    if not results:
+                        return "No past conversation matches found"
+                    return self._format_session_results(results)
+
                 case "add_task":
                     self.memory.add_task(
                         text=arguments["text"],
@@ -402,10 +440,71 @@ class MohaMindAgent:
             log.error(f"Tool '{tool_name}' execution failed: {e}")
             return f"Error: {str(e)}"
 
+    def _truncate_text(self, text: str, limit: int = 180) -> str:
+        clean = " ".join(text.split())
+        if len(clean) <= limit:
+            return clean
+        return clean[: limit - 3].rstrip() + "..."
+
+    def _format_session_results(self, results: list[dict]) -> str:
+        lines = []
+        for result in results:
+            when = result.get("created_at", "").replace("T", " ")
+            lines.append(
+                f"[{result['chat_id']} | {result['role']} | {when}] {self._truncate_text(result['content'])}"
+            )
+        return "\n".join(lines)
+
+    def _build_recall_context(self, message: str, chat_id: str) -> str:
+        tokens = [token for token in re.findall(r"\w+", message, flags=re.UNICODE) if len(token) >= 3]
+        if not tokens:
+            return ""
+
+        results = self.session_store.search_messages(message, chat_id=chat_id, limit=3)
+        if not results:
+            return ""
+
+        lines = [
+            "### RELEVANT PAST CONVERSATION",
+            "Use this only when it materially helps answer the current request.",
+        ]
+        for result in results:
+            when = result.get("created_at", "").replace("T", " ")
+            lines.append(f"- [{when}] {result['role']}: {self._truncate_text(result['content'], 140)}")
+        return "\n".join(lines)
+
+    def recall(self, query: str, chat_id: str = "default", limit: int = 5) -> str:
+        memory_results = self.memory.search(query)[:limit]
+        session_results = self.session_store.search_messages(query, chat_id=chat_id, limit=limit)
+
+        if not memory_results and not session_results:
+            return f"No results found for '{query}' in memory or past conversations."
+
+        lines = []
+
+        if memory_results:
+            lines.append("### Structured Memory")
+            for result in memory_results:
+                snippet = self._truncate_text(result["matched_line"], 120)
+                lines.append(
+                    f"- [{result['category']}:{result['line_number']}] {snippet}"
+                )
+
+        if session_results:
+            if lines:
+                lines.append("")
+            lines.append("### Past Conversations")
+            for result in session_results:
+                when = result.get("created_at", "").replace("T", " ")
+                lines.append(f"- [{when}] {result['role']}: {self._truncate_text(result['content'], 120)}")
+
+        return "\n".join(lines)
+
     def _get_conversation(self, chat_id: str) -> list[dict]:
         """Get or create conversation history for a chat."""
         if chat_id not in self.conversations:
-            self.conversations[chat_id] = []
+            persisted = self.session_store.load_recent_messages(chat_id, limit=20)
+            self.conversations[chat_id] = [{"role": item["role"], "content": item["content"]} for item in persisted]
         return self.conversations[chat_id]
 
     def _switch_to_fallback(self) -> bool:
@@ -425,9 +524,11 @@ class MohaMindAgent:
     async def chat(self, message: str, chat_id: str = "default") -> str:
         """Main conversation method. Process a user message and return a response."""
         conversation = self._get_conversation(chat_id)
-        system_prompt = build_system_prompt(self.memory)
+        recall_context = self._build_recall_context(message, chat_id)
+        system_prompt = build_system_prompt(self.memory, extra_context=recall_context)
 
         conversation.append({"role": "user", "content": message})
+        self.session_store.append_message(chat_id, "user", message)
 
         max_tool_rounds = 5
         final_response = ""
@@ -496,10 +597,12 @@ class MohaMindAgent:
 
         if not final_response:
             final_response = "I processed your request but couldn't generate a final response. Please try again."
+            conversation.append({"role": "assistant", "content": final_response})
 
         if len(conversation) > 50:
             self.conversations[chat_id] = conversation[-30:]
 
+        self.session_store.append_message(chat_id, "assistant", final_response)
         self.energy_tracker.log_interaction(message, len(final_response))
         return final_response
 

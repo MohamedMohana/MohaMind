@@ -32,8 +32,8 @@ def ksa_date_display() -> str:
     return now_ksa().strftime("%A, %B %d, %Y")
 
 
-def days_until(target_date: datetime) -> int:
-    now = now_ksa()
+def days_until(target_date: datetime, reference: datetime | None = None) -> int:
+    now = to_ksa(reference) if reference is not None else now_ksa()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     target = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if target.tzinfo is None:

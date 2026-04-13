@@ -1,5 +1,8 @@
 """Tests for MohaMind CLI components."""
 
+from unittest.mock import Mock
+
+import pytest
 from rich.console import Console
 from rich.text import Text
 
@@ -129,6 +132,46 @@ class TestCommands:
         assert len(help_list) == 1
         assert help_list[0]["name"] == "/help"
         assert help_list[0]["description"] == "Show help"
+
+    def test_cli_registers_recall_command(self, tmp_path):
+        from moha_mind.agent.memory import MemoryManager
+        from moha_mind.cli.app import MohaMindCLI
+
+        memory = MemoryManager(memory_dir=str(tmp_path))
+        agent = Mock()
+        agent.provider = "zai"
+        agent.model = "glm-4-plus"
+        agent.conversations = {}
+        agent.session_store = Mock()
+        agent.session_store.count_messages.return_value = 0
+        agent.session_store.load_recent_messages.return_value = []
+        agent.recall.return_value = "### Past Conversations\n- passport"
+
+        cli = MohaMindCLI(memory, agent)
+
+        assert cli.registry.get("recall") is not None
+
+    @pytest.mark.asyncio
+    async def test_cli_recall_command_runs(self, tmp_path):
+        from moha_mind.agent.memory import MemoryManager
+        from moha_mind.cli.app import MohaMindCLI
+
+        memory = MemoryManager(memory_dir=str(tmp_path))
+        agent = Mock()
+        agent.provider = "zai"
+        agent.model = "glm-4-plus"
+        agent.conversations = {}
+        agent.session_store = Mock()
+        agent.session_store.count_messages.return_value = 0
+        agent.session_store.load_recent_messages.return_value = []
+        agent.recall.return_value = "### Past Conversations\n- passport renewal"
+
+        cli = MohaMindCLI(memory, agent)
+
+        result = await cli._cmd_recall("passport")
+
+        assert result is None
+        agent.recall.assert_called_once_with("passport", chat_id="cli")
 
 
 class TestDisplay:

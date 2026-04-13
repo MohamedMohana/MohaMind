@@ -60,9 +60,24 @@ Other useful entry points:
 ```bash
 uv run mohamind "Plan my week"
 uv run mohamind -p "What needs my attention today?"
+uv run mohamind --help
 uv run mohamind doctor
 uv run mohamind --bot
 uv run mohamind --all
+```
+
+## Run Modes
+
+MohaMind supports three normal ways to run:
+
+- `uv run mohamind` for the interactive CLI
+- `uv run mohamind --bot` for Telegram only
+- `uv run mohamind --all` for CLI and Telegram together
+
+The one-shot path is useful for shell usage and quick checks:
+
+```bash
+uv run mohamind -p "What is expiring soon?"
 ```
 
 ## First 5 Minutes
@@ -80,6 +95,7 @@ Then try these commands:
 /today
 /add task renew passport
 /remind remind me tomorrow at 9 am to call Ahmad
+/recall passport
 /search passport
 /memory
 ```
@@ -91,6 +107,8 @@ Tomorrow at 9 AM remind me to call Ahmad.
 My son's birthday is on 2026-06-20. Save it and remind me before it.
 What needs my attention this week?
 ```
+
+When you reopen the CLI, MohaMind now reloads recent conversation history for that chat and shows a compact recap if past messages exist.
 
 ## Core CLI Commands
 
@@ -106,6 +124,7 @@ What needs my attention this week?
 | `/add task <text>` | Add a task quickly |
 | `/done <text>` | Complete a task |
 | `/search <query>` | Search memory |
+| `/recall <query>` | Search memory and past conversations |
 | `/memory` | Preview memory files |
 | `/briefing` | Generate the daily briefing |
 | `/review` | Generate the weekly review |
@@ -168,15 +187,29 @@ Additional memory surfaces:
 
 - `memory/daily_log/YYYY-MM-DD.md` for daily activity summaries
 - `memory/notes/*.md` for free-form notes
+- `memory/sessions.db` for persistent conversation history and recall
+
+On first boot, the agent also creates template memory files automatically if they do not exist yet.
 
 The rule is simple:
 
 - durable facts belong in the structured category files
 - daily context belongs in `daily_log/`
 - loose capture belongs in `notes/`
-- recall happens by reading and searching those files, not by hiding state in a private database
+- conversation history is persisted separately so the agent can resume and recall past discussions reliably
 
 That is the useful memory lesson from Hermes-style agents: keep long-term memory curated instead of burying everything in chat history. MohaMind follows the curated Markdown part today. It does not yet have Hermes-style indexed session search and recap, so the current system stays simple, editable, and transparent.
+
+### How Recall Works
+
+- `/search` looks through the structured Markdown memory files
+- `/recall` looks through structured memory and persisted conversations
+- normal chat requests can also pull relevant recent conversation context automatically
+
+This means the agent now has two different memory layers:
+
+- curated long-term memory for stable facts
+- persistent session history for conversational recall
 
 ## Minimal Configuration
 
@@ -200,6 +233,15 @@ Use `.env.example` as the full reference.
 - Run `uv run mohamind doctor` to check `.env`, API keys, memory, and credentials directories.
 - If you only want the CLI, leave Telegram blank.
 - If calendars are not configured, the app still runs. Calendar commands will simply show the integrations as unavailable.
+- If you want to start fresh conversation history, remove `memory/sessions.db`.
+- If you want to inspect what the agent remembers durably, open the Markdown files in `memory/`.
+
+## Quality
+
+Current local verification:
+
+- `uv run pytest` -> `393 passed`
+- `uv run ruff check .` -> clean
 
 ## Development
 

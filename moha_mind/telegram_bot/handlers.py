@@ -31,7 +31,7 @@ class Handlers:
             f"👨‍👩‍👧‍👦 /family - Family updates\n"
             f"🔔 /expiry - Expiring items\n"
             f"🧠 /remember <text> - Remember something\n"
-            f"🔍 /recall <text> - Search memories\n"
+            f"🔍 /recall <text> - Search memories and past conversations\n"
             f"🌅 /briefing - Morning briefing\n"
             f"📊 /review - Weekly review\n"
             f"📝 /note <text> - Quick note\n\n"
@@ -237,10 +237,7 @@ class Handlers:
             await update.message.reply_text("Usage: /recall <search query>")
             return
         query = " ".join(context.args)
-        response = await self.agent.chat(
-            f"Search my memory for: {query}",
-            chat_id=str(update.effective_chat.id),
-        )
+        response = self.agent.recall(query, chat_id=str(update.effective_chat.id))
         for part in truncate_message(response):
             await update.message.reply_text(part)
 

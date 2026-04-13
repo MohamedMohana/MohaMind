@@ -87,7 +87,7 @@ def parse_occasions(content: str, reference: datetime | None = None) -> list[Occ
                 day=day,
                 original_year=original_year,
                 next_date=next_date,
-                days_left=days_until(next_date),
+                days_left=days_until(next_date, reference=now),
                 source_line=stripped,
             )
         )

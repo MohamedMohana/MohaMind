@@ -36,6 +36,7 @@ class TestAgentCoreTools:
         names = [s["function"]["name"] for s in schema]
         assert "save_memory" in names
         assert "search_memory" in names
+        assert "search_sessions" in names
         assert "add_task" in names
         assert "complete_task" in names
         assert "list_tasks" in names
@@ -67,6 +68,12 @@ class TestAgentCoreTools:
     async def test_handle_tool_search_empty(self, agent):
         result = await agent.handle_tool_call("search_memory", {"query": "xyznonexistent"})
         assert "No results" in result
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_search_sessions(self, agent):
+        agent.session_store.append_message("test_chat", "user", "Discuss passport renewal next month")
+        result = await agent.handle_tool_call("search_sessions", {"query": "passport", "chat_id": "test_chat"})
+        assert "passport renewal" in result.lower()
 
     @pytest.mark.asyncio
     async def test_handle_tool_add_task(self, agent):
@@ -152,6 +159,39 @@ class TestAgentCoreConversation:
         agent.conversations["test_chat"] = [{"role": "user", "content": "hi"}]
         conv = agent._get_conversation("test_chat")
         assert len(conv) == 1
+
+    def test_get_conversation_loads_persisted_messages(self, agent):
+        agent.session_store.append_message("persisted_chat", "user", "Remember the dentist")
+        agent.session_store.append_message("persisted_chat", "assistant", "Noted.")
+        conv = agent._get_conversation("persisted_chat")
+        assert len(conv) == 2
+        assert conv[0]["content"] == "Remember the dentist"
+
+    def test_recall_combines_memory_and_sessions(self, agent):
+        agent.memory.write("profile", "Passport number: A123")
+        agent.session_store.append_message("cli", "user", "We talked about passport renewal")
+        result = agent.recall("passport", chat_id="cli")
+        assert "Structured Memory" in result
+        assert "Past Conversations" in result
+
+    def test_persisted_sessions_load_in_new_agent_instance(self, tmp_memory):
+        with patch("moha_mind.agent.core.settings") as mock_settings:
+            mock_settings.active_llm_config = {
+                "api_key": "test-key",
+                "model": "test-model",
+                "base_url": "https://test.api",
+                "provider": "test",
+            }
+            mock_settings.fallback_llm_config = None
+            with patch("moha_mind.agent.core.AsyncOpenAI"):
+                first = MohaMindAgent(tmp_memory)
+                first.session_store.append_message("shared_chat", "user", "Book dentist appointment")
+
+                second = MohaMindAgent(tmp_memory)
+                conv = second._get_conversation("shared_chat")
+
+        assert len(conv) == 1
+        assert conv[0]["content"] == "Book dentist appointment"
 
     def test_switch_to_fallback_no_fallback(self, agent):
         with patch("moha_mind.agent.core.settings") as mock_settings:

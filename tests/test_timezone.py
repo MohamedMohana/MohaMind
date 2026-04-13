@@ -1,6 +1,6 @@
 """Tests for timezone utilities."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from moha_mind.utils.timezone import (
@@ -26,7 +26,7 @@ class TestTimezone:
 
     def test_now_ksa_is_utc_plus_3(self):
         dt = now_ksa()
-        utc_now = datetime.utcnow()
+        utc_now = datetime.now(timezone.utc).replace(tzinfo=None)
         diff = dt.replace(tzinfo=None) - utc_now
         assert 2.5 < diff.total_seconds() / 3600 < 3.5
 
@@ -87,6 +87,12 @@ class TestTimezone:
         future = (now_ksa() + timedelta(days=7)).replace(tzinfo=None)
         result = days_until(future)
         assert result == 7
+
+    def test_days_until_with_reference(self):
+        target = datetime(2026, 4, 13)
+        reference = datetime(2026, 4, 12, 23, 30)
+        result = days_until(target, reference=reference)
+        assert result == 1
 
     def test_hours_until_future(self):
         future = now_ksa() + timedelta(hours=6)

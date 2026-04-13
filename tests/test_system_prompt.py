@@ -30,6 +30,7 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(memory)
         assert "save_memory" in prompt
         assert "search_memory" in prompt
+        assert "search_sessions" in prompt
         assert "add_task" in prompt
         assert "add_reminder" in prompt
         assert "get_attention_radar" in prompt
