@@ -64,6 +64,8 @@ def advance_recurrence(dt: datetime, recurrence: str) -> datetime:
         return dt
     if recurrence == "daily":
         return dt + timedelta(days=1)
+    if recurrence in {"every_2_days", "alternate_days"}:
+        return dt + timedelta(days=2)
     if recurrence == "weekly":
         return dt + timedelta(days=7)
     if recurrence == "monthly":

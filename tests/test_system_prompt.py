@@ -20,6 +20,7 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(memory)
         assert "MohaMind" in prompt
         assert "personal AI agent" in prompt
+        assert "Saudi/Gulf dialect" in prompt
 
     def test_contains_current_time(self, memory):
         prompt = build_system_prompt(memory)

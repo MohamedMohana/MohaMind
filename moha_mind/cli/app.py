@@ -188,6 +188,7 @@ class MohaMindCLI:
         response = await self.agent.chat(
             (
                 "Set a timed reminder for this request. "
+                "Support colloquial Arabic and Saudi/Gulf dialect naturally. "
                 "Convert any relative date/time into an exact Asia/Riyadh datetime and use the reminder tools: "
                 f"{args.strip()}"
             ),

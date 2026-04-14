@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from moha_mind.utils.date_helpers import (
+    advance_recurrence,
     date_range_days,
     is_weekend,
     next_occurrence,
@@ -141,3 +142,10 @@ class TestDateRangeDays:
         assert len(result) == 7
         assert result[0] == start
         assert result[-1] == datetime(2026, 4, 13)
+
+
+class TestAdvanceRecurrence:
+    def test_every_2_days(self):
+        start = datetime(2026, 4, 14, 16, 0)
+        result = advance_recurrence(start, "every_2_days")
+        assert result == datetime(2026, 4, 16, 16, 0)

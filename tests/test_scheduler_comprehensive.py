@@ -27,9 +27,10 @@ class TestExpiryGuardianExtended:
 
     @pytest.mark.asyncio
     async def test_alert_with_items(self, tmp_memory):
+        soon = (now_ksa() + timedelta(days=1)).strftime("%Y-%m-%d")
         tmp_memory.write(
             "documents",
-            "# Documents\n## Other Documents\n- Passport: A123 - Expires: 2026-04-13\n",
+            f"# Documents\n## Other Documents\n- Passport: A123 - Expires: {soon}\n",
         )
         bot = _make_mock_bot()
         guardian = ExpiryGuardian(tmp_memory, bot)

@@ -18,6 +18,7 @@ from moha_mind.agent.memory import MemoryManager
 from moha_mind.agent.session_store import SessionStore
 from moha_mind.agent.system_prompt import build_system_prompt
 from moha_mind.config import settings
+from moha_mind.utils.arabic_support import build_arabic_understanding_context, normalize_colloquial_arabic
 from moha_mind.utils.logging_config import log
 
 
@@ -456,11 +457,13 @@ class MohaMindAgent:
         return "\n".join(lines)
 
     def _build_recall_context(self, message: str, chat_id: str) -> str:
-        tokens = [token for token in re.findall(r"\w+", message, flags=re.UNICODE) if len(token) >= 3]
+        normalized_message, _ = normalize_colloquial_arabic(message)
+        recall_query = normalized_message if normalized_message else message
+        tokens = [token for token in re.findall(r"\w+", recall_query, flags=re.UNICODE) if len(token) >= 3]
         if not tokens:
             return ""
 
-        results = self.session_store.search_messages(message, chat_id=chat_id, limit=3)
+        results = self.session_store.search_messages(recall_query, chat_id=chat_id, limit=3)
         if not results:
             return ""
 
@@ -525,7 +528,9 @@ class MohaMindAgent:
         """Main conversation method. Process a user message and return a response."""
         conversation = self._get_conversation(chat_id)
         recall_context = self._build_recall_context(message, chat_id)
-        system_prompt = build_system_prompt(self.memory, extra_context=recall_context)
+        arabic_context = build_arabic_understanding_context(message)
+        extra_parts = [part for part in (arabic_context, recall_context) if part]
+        system_prompt = build_system_prompt(self.memory, extra_context="\n\n".join(extra_parts))
 
         conversation.append({"role": "user", "content": message})
         self.session_store.append_message(chat_id, "user", message)

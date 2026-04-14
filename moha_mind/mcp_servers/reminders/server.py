@@ -27,7 +27,7 @@ class ReminderServer:
         text: str,
         remind_at: str,
         event_at: str = "",
-        repeat: Literal["none", "daily", "weekly", "monthly", "annual"] = "none",
+        repeat: Literal["none", "daily", "weekly", "monthly", "annual", "every_2_days"] = "none",
         notes: str = "",
         source: str = "agent",
     ) -> str:

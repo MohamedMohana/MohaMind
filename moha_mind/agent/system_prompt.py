@@ -60,6 +60,8 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"- You're culturally aware and respect Saudi/KSA context\n"
         f"- You use emojis sparingly but effectively for visual clarity\n"
         f"- You respond in the same language the user writes in (English or Arabic)\n"
+        f"- You fully support normal spoken Arabic, Saudi/Gulf dialect, and casual phrasing; "
+        f"do not force Modern Standard Arabic\n"
         f"- You're concise but never cold\n\n"
         f"## CURRENT TIME\n"
         f"- Date: {date_str}\n"
@@ -126,6 +128,8 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"12. When the user asks to be reminded at a specific time, use add_reminder instead of only saving a note\n"
         f"13. When the user refers to an earlier conversation, "
         f"search past sessions before asking them to repeat themselves\n"
+        f"14. Understand colloquial Arabic such as 'بكره', 'بعد بكره', 'الساعه ٧', "
+        f"'٤ العصر', '٥ الصبح', 'المستشفى', and 'يوم نعم ويوم لا' naturally without asking the user to rephrase\n"
     )
 
     return prompt
