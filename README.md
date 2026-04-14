@@ -16,6 +16,29 @@ MohaMind uses z.ai (GLM) by default and can fall back to OpenAI.
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
 
+## Contents
+
+- [What It Does](#what-it-does)
+- [Core Capabilities](#core-capabilities)
+- [Quick Start](#quick-start)
+- [Run Modes](#run-modes)
+- [First 5 Minutes](#first-5-minutes)
+- [Common Real-Life Flows](#common-real-life-flows)
+- [How The Agent Thinks About Your Data](#how-the-agent-thinks-about-your-data)
+- [Arabic And Dialect Support](#arabic-and-dialect-support)
+- [Reliability Notes](#reliability-notes)
+- [Core CLI Commands](#core-cli-commands)
+- [Telegram Usage](#telegram-usage)
+- [Scheduler And Proactive Behavior](#scheduler-and-proactive-behavior)
+- [Memory Model](#memory-model)
+- [Integrations](#integrations)
+- [Minimal Configuration](#minimal-configuration)
+- [Architecture](#architecture)
+- [Troubleshooting](#troubleshooting)
+- [Quality](#quality)
+- [Development](#development)
+- [License](#license)
+
 ## What It Does
 
 MohaMind combines four layers into one personal agent:
@@ -158,6 +181,26 @@ And in Arabic:
 
 When you reopen the CLI, MohaMind reloads recent conversation history for that chat and shows a compact recap if past messages exist.
 
+## Common Real-Life Flows
+
+These are typical examples of how the agent handles everyday personal operations.
+
+| You say | What MohaMind does |
+| --- | --- |
+| `ذكرني بكره الساعة ٧ عندي اجتماع` | Creates a timed reminder in `memory/reminders.md` for tomorrow at 7 in your configured timezone |
+| `عندي موعد بالمستشفى بعد يومين الساعة ٤ العصر` | Interprets the colloquial date and time, then stores it as a reminder or appointment context |
+| `بعد بكره لازم أشتري الدوا` | Treats it as a due task or reminder depending on wording and available date context |
+| `موعد زواجي ١-١-٢٠٢٦` | Stores it as an occasion in `memory/occasions.md` and makes it available for yearly reminders |
+| `بعد شهر عندي صيانة سيارة` | Stores the service timing as a reminder or task, and related vehicle details can live in `memory/vehicle.md` |
+| `عندي تجديد OpenAI بتاريخ 2026-05-14` | Stores the subscription fact in finance memory and can create a reminder for the renewal date |
+| `أبي أروح النادي يوم نعم ويوم لا الساعة ٤ العصر` | Interprets the recurrence as every two days and schedules it accordingly |
+
+The most reliable pattern is simple:
+
+- use reminder phrasing for anything that needs a timed alert
+- use task phrasing for things that need tracking and completion
+- use occasion phrasing for annual dates such as birthdays and anniversaries
+
 ## How The Agent Thinks About Your Data
 
 For reliable behavior, MohaMind separates user input into different buckets.
@@ -265,6 +308,17 @@ One important rule still applies:
 
 For maximum reliability, specify the time period when it matters.
 
+## Reliability Notes
+
+MohaMind is designed to behave predictably, but reliable automation still depends on clear user intent.
+
+- `Reminder` is the best path for anything that must trigger at a specific time.
+- `Task` is the best path for something you need to track and complete.
+- `Occasion` is the best path for birthdays, anniversaries, and yearly dates.
+- If you want proactive alerts, keep `uv run mohamind --bot` or `uv run mohamind --all` running.
+- If a time expression is ambiguous, the agent may ask for clarification or choose the safest interpretation.
+- Structured Markdown memory is the source of truth for durable facts; session recall helps with conversational context.
+
 ## Core CLI Commands
 
 | Command | What it does |
@@ -281,11 +335,23 @@ For maximum reliability, specify the time period when it matters.
 | `/search <query>` | Search structured memory |
 | `/recall <query>` | Search memory and past conversations |
 | `/memory` | Preview memory files |
+| `/expiring` | Show expiring documents and renewals |
 | `/briefing` | Generate the daily briefing |
 | `/review` | Generate the weekly review |
 | `/calendar` | Show calendar snapshot |
+| `/family` | Show family overview |
+| `/social` | Show social connections and neglected contacts |
+| `/vehicle` | Show vehicle info and next service |
+| `/health` | Show medications and health status |
+| `/finance` | Show finance overview |
+| `/stats` | Show system stats |
 | `/config` | Show current configuration |
 | `/doctor` | Check configuration health |
+| `/setup` | Re-run setup wizard |
+| `/provider <name>` | Switch LLM provider |
+| `/model <name>` | Change model name |
+| `/key` | Update the current provider API key |
+| `/quit` | Exit the CLI |
 
 ## Telegram Usage
 
@@ -363,6 +429,15 @@ This gives the agent two memory layers:
 
 - curated long-term memory for durable facts
 - persistent session history for conversational recall
+
+### Privacy And Ownership
+
+MohaMind is designed so your important memory stays understandable and inspectable.
+
+- structured memory is stored as local Markdown files
+- session recall is stored locally in `memory/sessions.db`
+- you can inspect, back up, or delete these files directly
+- the project does not depend on a hosted proprietary memory layer
 
 ### How Recall Works
 
