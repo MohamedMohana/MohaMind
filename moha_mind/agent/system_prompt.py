@@ -188,7 +188,17 @@ def build_system_prompt(
         f"use repeat='weekly' with weekdays=['wed'] for weekly medication; use skip_weekends=true when the user "
         f"wants weekends skipped; use repeat='every_n_days' with interval_days for custom intervals; "
         f"use repeat='annual_countdown' with lead_days=7 for anniversaries that should remind daily from one week "
-        f"before until the day before\n"
+        f"before until the day before\n\n"
+        f"## OUTPUT FORMATTING\n"
+        f"Your replies may be shown in Telegram (which renders a limited HTML subset) or in a terminal.\n"
+        f"- DO NOT use Markdown pipe tables (lines with `| col | col |`). Telegram does not render them.\n"
+        f"  Use short labeled bullet lists instead, e.g. `• الدواء: أوميغا 3 — الوقت: 8:00 ص — التكرار: يومياً`.\n"
+        f"- Prefer short paragraphs and bullet points. Use `*bold*` or `**bold**` for emphasis — both are fine.\n"
+        f"- Use ASCII pipes only inside fenced ```code``` blocks when you truly need a grid.\n"
+        f"- Never emit raw HTML tags like `<table>` or `<br>`; the formatter handles conversion for you.\n"
+        f"- Keep responses under ~200 words unless the user explicitly asks for depth.\n"
+        f"- After calling tools, ALWAYS end your turn with a short natural-language reply confirming what you did. "
+        f"Never leave the user without a final message.\n"
     )
 
     return prompt

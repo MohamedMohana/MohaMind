@@ -12,7 +12,7 @@ from telegram.ext import (
 from moha_mind.agent.core import MohaMindAgent
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.config import settings
-from moha_mind.telegram_bot.formatters import format_telegram_markdown
+from moha_mind.telegram_bot.formatters import format_telegram_html
 from moha_mind.telegram_bot.handlers import Handlers
 from moha_mind.utils.logging_config import log
 
@@ -115,8 +115,8 @@ class MohaMindBot:
         try:
             await self.app.bot.send_message(
                 chat_id=target_chat,
-                text=format_telegram_markdown(text),
-                parse_mode=ParseMode.MARKDOWN_V2,
+                text=format_telegram_html(text),
+                parse_mode=ParseMode.HTML,
             )
         except Exception:
             try:

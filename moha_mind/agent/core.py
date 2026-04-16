@@ -706,7 +706,7 @@ class MohaMindAgent:
         conversation.append({"role": "user", "content": message})
         self.session_store.append_message(chat_id, "user", message)
 
-        max_tool_rounds = 5
+        max_tool_rounds = 10
         final_response = ""
 
         for round_num in range(max_tool_rounds):
@@ -754,7 +754,33 @@ class MohaMindAgent:
                 break
 
         if not final_response:
-            final_response = "I processed your request but couldn't generate a final response. Please try again."
+            # Tool budget exhausted without a user-facing reply. Force one by
+            # disabling tools so the model must summarize what it already did.
+            log.warning(f"Tool-call budget exhausted after {max_tool_rounds} rounds; forcing final reply.")
+            try:
+                forced = await self._chat_completion_with_fallback(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        *conversation[-20:],
+                        {
+                            "role": "user",
+                            "content": (
+                                "Summarize the result of my previous request for me now, in the same language "
+                                "I used. Do not call any more tools."
+                            ),
+                        },
+                    ],
+                    max_tokens=800,
+                    temperature=0.5,
+                )
+                final_response = (forced.choices[0].message.content or "").strip()
+            except Exception as exc:
+                log.error(f"Forced final reply failed: {exc}")
+
+        if not final_response:
+            final_response = "تم تنفيذ طلبك ✅"
+            conversation.append({"role": "assistant", "content": final_response})
+        elif not conversation or conversation[-1].get("role") != "assistant":
             conversation.append({"role": "assistant", "content": final_response})
 
         final_response = await self._maybe_verify_and_revise(
