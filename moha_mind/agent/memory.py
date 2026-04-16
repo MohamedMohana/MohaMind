@@ -39,8 +39,31 @@ class MemoryManager:
         self.memory_path.mkdir(parents=True, exist_ok=True)
         (self.memory_path / "daily_log").mkdir(exist_ok=True)
         (self.memory_path / "notes").mkdir(exist_ok=True)
+        self._scaffold_from_templates()
         self.provenance = ProvenanceLog(self.memory_path)
         self._write_source: str = "agent"
+
+    def _scaffold_from_templates(self) -> None:
+        """On first run, seed missing memory files from memory/templates/.
+
+        Lets us ship empty structural scaffolds in the public repo while
+        keeping real personal files gitignored.
+        """
+        templates_dir = self.memory_path / "templates"
+        if not templates_dir.is_dir():
+            return
+        for category, filename in MEMORY_FILES.items():
+            target = self.memory_path / filename
+            if target.exists():
+                continue
+            source = templates_dir / filename
+            if not source.is_file():
+                continue
+            try:
+                target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+                log.info(f"Seeded {category} from template")
+            except OSError as exc:
+                log.debug(f"Could not seed {category} from template: {exc}")
 
     def set_write_source(self, source: str) -> None:
         """Tag upcoming writes with a source (e.g. 'user', 'agent', 'consolidator')."""

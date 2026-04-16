@@ -19,9 +19,16 @@ credentials/
 *.token
 *_token.json
 
-# Memory (private data - keep templates, ignore personal logs)
-memory/daily_log/*.md
-memory/notes/*.md
+# Memory — PRIVATE. Ignore EVERYTHING under memory/ by default.
+# Personal life data (health, finances, family, conversations, etc.) lives
+# here and must never leave the local machine. The only things tracked
+# are the structural scaffolds under memory/templates/, the memory README,
+# and a .gitkeep placeholder.
+memory/*
+!memory/.gitkeep
+!memory/README.md
+!memory/templates/
+!memory/templates/**
 
 # IDE
 .vscode/
