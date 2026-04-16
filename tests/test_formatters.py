@@ -5,6 +5,7 @@ from moha_mind.telegram_bot.formatters import (
     format_briefing,
     format_expiry_alert,
     format_task_list,
+    format_telegram_markdown,
     truncate_message,
 )
 
@@ -58,6 +59,26 @@ class TestFormatBriefing:
 
     def test_empty_string(self):
         assert format_briefing("") == ""
+
+
+class TestFormatTelegramMarkdown:
+    def test_bold_conversion_and_escape(self):
+        result = format_telegram_markdown("**Omega-3** الساعة 1:30 م.")
+        assert "*Omega\\-3*" in result
+        assert "1:30 م\\." in result
+
+    def test_bullets_are_safe(self):
+        result = format_telegram_markdown("- بعد الغدا على الساعة **1:30 م**")
+        assert result.startswith("• ")
+        assert "*1:30 م*" in result
+
+    def test_ordered_list_escapes_dot(self):
+        result = format_telegram_markdown("1. خذ الدواء")
+        assert result.startswith("1\\. ")
+
+    def test_heading_conversion(self):
+        result = format_telegram_markdown("## أوميقا-3")
+        assert result == "*أوميقا\\-3*"
 
 
 class TestFormatTaskList:

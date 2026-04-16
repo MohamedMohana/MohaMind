@@ -21,7 +21,7 @@ class WeeklyReview:
         try:
             review = await self.agent.generate_weekly_review()
 
-            header = "📊 Weekly Life Review\n\n"
+            header = "📊 المراجعة الأسبوعية\n\n"
             full_message = header + review
 
             for part in truncate_message(full_message):

@@ -9,9 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from moha_mind.agent.provenance import ProvenanceLog
 from moha_mind.config import settings
 from moha_mind.utils.logging_config import log
-from moha_mind.utils.timezone import ksa_today_str, now_ksa
+from moha_mind.utils.timezone import format_time_en, ksa_today_str, now_ksa
 
 MEMORY_FILES = {
     "profile": "profile.md",
@@ -38,6 +39,12 @@ class MemoryManager:
         self.memory_path.mkdir(parents=True, exist_ok=True)
         (self.memory_path / "daily_log").mkdir(exist_ok=True)
         (self.memory_path / "notes").mkdir(exist_ok=True)
+        self.provenance = ProvenanceLog(self.memory_path)
+        self._write_source: str = "agent"
+
+    def set_write_source(self, source: str) -> None:
+        """Tag upcoming writes with a source (e.g. 'user', 'agent', 'consolidator')."""
+        self._write_source = source or "agent"
 
     def read(self, category: str) -> str:
         """Read a memory file by category name."""
@@ -48,13 +55,28 @@ class MemoryManager:
             return filepath.read_text(encoding="utf-8")
         return ""
 
-    def write(self, category: str, content: str) -> None:
-        """Overwrite a memory file."""
+    def write(self, category: str, content: str, *, action: str = "write", details: Optional[dict] = None) -> None:
+        """Overwrite a memory file.
+
+        Records a provenance event with the before/after so /undo and /why work.
+        """
         safe_category = category.replace("..", "").replace("/", "").replace("\\", "")
         filename = MEMORY_FILES.get(safe_category, f"{safe_category}.md")
         filepath = self.memory_path / filename
+
+        before = filepath.read_text(encoding="utf-8") if filepath.exists() else ""
+        new_content = content.strip() + "\n"
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        filepath.write_text(content.strip() + "\n", encoding="utf-8")
+        filepath.write_text(new_content, encoding="utf-8")
+
+        self.provenance.record(
+            action=action,
+            category=safe_category,
+            before=before,
+            after=new_content,
+            source=self._write_source,
+            details=details or {},
+        )
         log.info(f"Memory updated: {category}")
 
     def append(self, category: str, content: str) -> None:
@@ -62,22 +84,118 @@ class MemoryManager:
         existing = self.read(category)
         if existing and not existing.endswith("\n"):
             existing += "\n"
-        self.write(category, existing + content)
+        self.write(category, existing + content, action="append", details={"added_chars": len(content)})
 
     def append_to_section(self, category: str, section_header: str, line: str) -> None:
         """Append a line under a specific ## section in a memory file."""
         content = self.read(category)
+        details = {"section": section_header, "line": line}
         if not content:
-            self.write(category, f"# {category.title()}\n\n## {section_header}\n{line}\n")
+            self.write(
+                category,
+                f"# {category.title()}\n\n## {section_header}\n{line}\n",
+                action="append_section",
+                details=details,
+            )
             return
 
         section_pattern = f"## {section_header}"
         if section_pattern in content:
             parts = content.split(section_pattern, 1)
             after = parts[1]
-            self.write(category, parts[0] + section_pattern + after.rstrip() + f"\n{line}\n")
+            self.write(
+                category,
+                parts[0] + section_pattern + after.rstrip() + f"\n{line}\n",
+                action="append_section",
+                details=details,
+            )
         else:
-            self.write(category, content.rstrip() + f"\n\n## {section_header}\n{line}\n")
+            self.write(
+                category,
+                content.rstrip() + f"\n\n## {section_header}\n{line}\n",
+                action="append_section",
+                details=details,
+            )
+
+    def delete_line(self, category: str, line_number: int) -> bool:
+        """Delete a specific line (1-indexed) from a memory file.
+
+        Returns True when the line was deleted, False otherwise.
+        """
+        content = self.read(category)
+        if not content:
+            return False
+        lines = content.split("\n")
+        idx = line_number - 1
+        if idx < 0 or idx >= len(lines):
+            return False
+        removed = lines[idx]
+        del lines[idx]
+        self.write(
+            category,
+            "\n".join(lines),
+            action="delete_line",
+            details={"line_number": line_number, "removed_text": removed},
+        )
+        log.info(f"Deleted line {line_number} from {category}")
+        return True
+
+    def delete_matches(self, category: str, query: str, max_deletions: int | None = None) -> int:
+        """Delete lines inside a category that contain the query (case-insensitive).
+
+        Comment lines (starting with '#' or '<!--') are never deleted.
+        Returns the number of lines removed.
+        """
+        if not query.strip():
+            return 0
+        content = self.read(category)
+        if not content:
+            return 0
+
+        needle = query.lower()
+        kept: list[str] = []
+        removed = 0
+        for line in content.split("\n"):
+            stripped = line.strip()
+            is_comment = stripped.startswith("#") or stripped.startswith("<!--")
+            if (
+                not is_comment
+                and stripped
+                and needle in line.lower()
+                and (max_deletions is None or removed < max_deletions)
+            ):
+                removed += 1
+                continue
+            kept.append(line)
+
+        if removed:
+            self.write(
+                category,
+                "\n".join(kept),
+                action="delete_matches",
+                details={"query": query, "removed_count": removed},
+            )
+            log.info(f"Deleted {removed} line(s) from {category} matching '{query}'")
+        return removed
+
+    def delete_note(self, title: str) -> bool:
+        """Delete a note by title. Returns True when deleted."""
+        safe_title = re.sub(r"[^\w\s-]", "", title).replace(" ", "_").lower()
+        filepath = self.memory_path / "notes" / f"{safe_title}.md"
+        if filepath.exists():
+            before = filepath.read_text(encoding="utf-8")
+            filepath.unlink()
+            self.provenance.record(
+                action="delete_note",
+                category=f"notes/{safe_title}",
+                before=before,
+                after="",
+                source=self._write_source,
+                details={"title": title},
+            )
+            log.info(f"Deleted note: {safe_title}")
+            return True
+        return False
 
     def search(self, query: str, categories: Optional[list[str]] = None) -> list[dict]:
         """Search across memory files for a keyword/phrase."""
@@ -121,7 +239,7 @@ class MemoryManager:
         existing = ""
         if filepath.exists():
             existing = filepath.read_text(encoding="utf-8")
-        entry = f"\n## Log Entry ({now_ksa().strftime('%H:%M')})\n{summary}\n"
+        entry = f"\n## Log Entry ({format_time_en(now_ksa())})\n{summary}\n"
         filepath.write_text((existing + entry).strip() + "\n", encoding="utf-8")
 
     def save_note(self, title: str, content: str) -> Path:
@@ -230,6 +348,11 @@ class MemoryManager:
             "remind_at": "",
             "event_at": "",
             "repeat": "none",
+            "times": "",
+            "weekdays": "",
+            "skip_weekends": "false",
+            "interval_days": "",
+            "lead_days": "",
             "notes": "",
             "source": "manual",
         }
@@ -249,6 +372,16 @@ class MemoryManager:
         if reminder.get("event_at"):
             parts.append(f"event_at:{reminder['event_at']}")
         parts.append(f"repeat:{reminder.get('repeat', 'none')}")
+        if reminder.get("times"):
+            parts.append(f"times:{reminder['times']}")
+        if reminder.get("weekdays"):
+            parts.append(f"weekdays:{reminder['weekdays']}")
+        if str(reminder.get("skip_weekends", "")).lower() == "true":
+            parts.append("skip_weekends:true")
+        if reminder.get("interval_days"):
+            parts.append(f"interval_days:{reminder['interval_days']}")
+        if reminder.get("lead_days"):
+            parts.append(f"lead_days:{reminder['lead_days']}")
         if reminder.get("notes"):
             parts.append(f"notes:{reminder['notes']}")
         if reminder.get("source"):
@@ -278,6 +411,11 @@ class MemoryManager:
         remind_at: str,
         event_at: Optional[str] = None,
         repeat: str = "none",
+        times: str = "",
+        weekdays: str = "",
+        skip_weekends: bool | str = False,
+        interval_days: int | str | None = None,
+        lead_days: int | str | None = None,
         notes: str = "",
         source: str = "agent",
     ) -> None:
@@ -291,6 +429,11 @@ class MemoryManager:
             "remind_at": remind_at.strip(),
             "event_at": (event_at or "").strip(),
             "repeat": repeat.strip() or "none",
+            "times": (times or "").strip(),
+            "weekdays": (weekdays or "").strip(),
+            "skip_weekends": "true" if str(skip_weekends).lower() == "true" or skip_weekends is True else "false",
+            "interval_days": str(interval_days).strip() if interval_days else "",
+            "lead_days": str(lead_days).strip() if lead_days else "",
             "notes": notes.strip(),
             "source": source.strip() or "agent",
         }
@@ -390,6 +533,64 @@ class MemoryManager:
                             continue
         results.sort(key=lambda x: x["days_left"])
         return results
+
+    def undo_last(self) -> Optional[dict]:
+        """Revert the most recent memory mutation.
+
+        Returns a dict describing what was reverted, or None if there is nothing
+        to undo / the file can't be safely restored.
+        """
+        event = self.provenance.last_event()
+        if not event:
+            return None
+
+        category = event.category
+
+        # Note deletions need the notes/ path.
+        if event.action == "delete_note":
+            if not category.startswith("notes/"):
+                return None
+            safe_title = category.split("/", 1)[1]
+            filepath = self.memory_path / "notes" / f"{safe_title}.md"
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            filepath.write_text(event.before_snippet, encoding="utf-8")
+            self.provenance.record(
+                action="undo_delete_note",
+                category=category,
+                before="",
+                after=event.before_snippet,
+                source="undo",
+                details={"restored_event": event.event_id},
+            )
+            return {"action": event.action, "category": category, "event_id": event.event_id}
+
+        filename = MEMORY_FILES.get(category, f"{category}.md")
+        filepath = self.memory_path / filename
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.write_text(event.before_snippet, encoding="utf-8")
+        self.provenance.record(
+            action=f"undo_{event.action}",
+            category=category,
+            before=event.after_snippet,
+            after=event.before_snippet,
+            source="undo",
+            details={"restored_event": event.event_id},
+        )
+        return {"action": event.action, "category": category, "event_id": event.event_id}
+
+    def explain(self, category: str, text_fragment: str) -> list[dict]:
+        """Return provenance events whose snippets contain the fragment in a category."""
+        events = self.provenance.find_for_line(category, text_fragment)
+        return [
+            {
+                "event_id": ev.event_id,
+                "timestamp": ev.timestamp,
+                "action": ev.action,
+                "source": ev.source,
+                "details": ev.details,
+            }
+            for ev in events
+        ]
 
     def ensure_templates(self) -> None:
         """Create template memory files if they don't exist."""

@@ -6,8 +6,13 @@ from zoneinfo import ZoneInfo
 from moha_mind.utils.timezone import (
     KSA_TZ,
     days_until,
+    format_datetime_ar,
+    format_datetime_en,
+    format_time_ar,
+    format_time_en,
     hours_until,
     ksa_date_display,
+    ksa_date_display_ar,
     ksa_day_name,
     ksa_time_str,
     ksa_today_str,
@@ -52,6 +57,12 @@ class TestTimezone:
         assert ":" in result
         assert len(result) > 4
 
+    def test_ksa_time_str_is_12_hour(self):
+        result = ksa_time_str()
+        assert ("AM" in result) or ("PM" in result)
+        hour_part = result.split(":", 1)[0]
+        assert 1 <= int(hour_part) <= 12
+
     def test_ksa_day_name(self):
         result = ksa_day_name()
         assert result in [
@@ -67,6 +78,41 @@ class TestTimezone:
     def test_ksa_date_display(self):
         result = ksa_date_display()
         assert "2026" in result or "2025" in result
+
+    def test_ksa_date_display_ar(self):
+        result = ksa_date_display_ar(datetime(2026, 4, 16, tzinfo=KSA_TZ))
+        assert result == "الخميس، 16 أبريل 2026"
+
+    def test_format_time_ar_morning(self):
+        assert format_time_ar("05:00") == "5:00 ص"
+
+    def test_format_time_ar_evening(self):
+        assert format_time_ar("17:30") == "5:30 م"
+
+    def test_format_datetime_ar(self):
+        assert format_datetime_ar("2026-04-16 20:00") == "2026-04-16 8:00 م"
+
+    def test_format_time_en_morning(self):
+        assert format_time_en("05:00") == "5:00 AM"
+
+    def test_format_time_en_noon(self):
+        assert format_time_en("12:00") == "12:00 PM"
+
+    def test_format_time_en_midnight(self):
+        assert format_time_en("00:00") == "12:00 AM"
+
+    def test_format_time_en_evening(self):
+        assert format_time_en("17:30") == "5:30 PM"
+
+    def test_format_time_en_from_datetime(self):
+        dt = datetime(2026, 4, 16, 21, 15)
+        assert format_time_en(dt) == "9:15 PM"
+
+    def test_format_datetime_en(self):
+        assert format_datetime_en("2026-04-16 20:00") == "2026-04-16 8:00 PM"
+
+    def test_format_time_en_invalid_falls_back(self):
+        assert format_time_en("not-a-time") == "not-a-time"
 
     def test_days_until_future(self):
         future = now_ksa() + timedelta(days=5)

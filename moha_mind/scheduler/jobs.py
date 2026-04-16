@@ -9,6 +9,7 @@ from moha_mind.agent.memory import MemoryManager
 from moha_mind.config import settings
 from moha_mind.scheduler.daily_briefing import DailyBriefing
 from moha_mind.scheduler.expiry_guardian import ExpiryGuardian
+from moha_mind.scheduler.memory_consolidator import MemoryConsolidator
 from moha_mind.scheduler.reminder_engine import ReminderEngine
 from moha_mind.scheduler.social_pulse import SocialPulse
 from moha_mind.scheduler.weekly_review import WeeklyReview
@@ -39,6 +40,7 @@ class SchedulerJobs:
         self.expiry_guardian = ExpiryGuardian(memory, bot)
         self.social_pulse = SocialPulse(memory, bot)
         self.reminder_engine = ReminderEngine(memory, bot)
+        self.memory_consolidator = MemoryConsolidator(agent, memory, bot)
 
     def setup(self) -> None:
         """Register all scheduled jobs."""
@@ -115,6 +117,17 @@ class SchedulerJobs:
         )
         log.info("Scheduled: Pregnancy Update on Saturdays at 09:00")
 
+        if getattr(settings, "consolidator_enabled", False):
+            cons_hour, cons_minute = parse_time(getattr(settings, "consolidator_time", "02:30"))
+            self.scheduler.add_job(
+                self.memory_consolidator.run,
+                CronTrigger(hour=cons_hour, minute=cons_minute, timezone=tz),
+                id="memory_consolidator",
+                name="Memory Consolidator",
+                replace_existing=True,
+            )
+            log.info(f"Scheduled: Memory Consolidator at {cons_hour:02d}:{cons_minute:02d} {tz}")
+
         self.scheduler.add_job(
             self._monthly_subscription_check,
             CronTrigger(day=1, hour=10, minute=0, timezone=tz),
@@ -131,17 +144,18 @@ class SchedulerJobs:
         family_server = FamilyServer(self.memory)
         result = await family_server.handle_tool("family_update_pregnancy_week", {})
         if result and "week" in result.lower():
-            await self.bot.send_message(f"🤰 Pregnancy Update:\n{result}")
+            await self.bot.send_message(f"🤰 تحديث الحمل:\n{result}")
 
     async def _monthly_subscription_check(self) -> None:
         """Monthly subscription review."""
         response = await self.agent.chat(
-            "Review all my subscriptions and bills. Show total monthly cost and flag anything unusual.",
+            "اكتب الرد باللغة العربية الواضحة. راجع كل الاشتراكات والفواتير، "
+            "اعرض إجمالي التكلفة الشهرية، ونبّهني لأي شيء غير معتاد.",
             chat_id="scheduler",
         )
         from moha_mind.telegram_bot.formatters import truncate_message
 
-        header = "💰 Monthly Subscription & Bill Review\n\n"
+        header = "💰 مراجعة الاشتراكات والفواتير الشهرية\n\n"
         for part in truncate_message(header + response):
             await self.bot.send_message(part)
 

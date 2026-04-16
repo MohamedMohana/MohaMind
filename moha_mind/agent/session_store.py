@@ -87,6 +87,15 @@ class SessionStore:
         if not clean_content:
             return
 
+        # Privacy: redact sensitive-looking spans before they land on disk.
+        try:
+            from moha_mind.agent.privacy import PrivacyPolicy, redact_if
+
+            policy = PrivacyPolicy.from_settings()
+            clean_content = redact_if(clean_content, when=policy.redact_in_sessions)
+        except Exception as exc:  # pragma: no cover - defensive
+            log.debug(f"Session privacy redaction skipped: {exc}")
+
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO messages(chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
@@ -113,6 +122,36 @@ class SessionStore:
                 "created_at": row["created_at"],
             }
             for row in reversed(rows)
+        ]
+
+    def load_since(self, cutoff, chat_id: Optional[str] = None, limit: int = 200) -> list[dict]:
+        """Load messages since a datetime cutoff (all chats unless chat_id given)."""
+        try:
+            cutoff_iso = cutoff.isoformat(timespec="seconds") if hasattr(cutoff, "isoformat") else str(cutoff)
+        except Exception:
+            cutoff_iso = str(cutoff)
+
+        query = (
+            "SELECT role, content, created_at, chat_id FROM messages "
+            "WHERE role IN ('user', 'assistant') AND created_at >= ?"
+        )
+        params: list = [cutoff_iso]
+        if chat_id:
+            query += " AND chat_id = ?"
+            params.append(chat_id)
+        query += " ORDER BY id ASC LIMIT ?"
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [
+            {
+                "role": row["role"],
+                "content": row["content"],
+                "created_at": row["created_at"],
+                "chat_id": row["chat_id"],
+            }
+            for row in rows
         ]
 
     def count_messages(self, chat_id: Optional[str] = None) -> int:

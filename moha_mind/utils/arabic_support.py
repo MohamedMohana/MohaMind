@@ -15,6 +15,17 @@ def contains_arabic(text: str) -> bool:
     return bool(re.search(r"[\u0600-\u06FF]", text))
 
 
+def detect_language(text: str) -> str:
+    """Return 'ar' when the text is primarily Arabic, 'en' otherwise."""
+    if not text:
+        return "en"
+    arabic_chars = len(re.findall(r"[\u0600-\u06FF]", text))
+    latin_chars = len(re.findall(r"[A-Za-z]", text))
+    if arabic_chars == 0 and latin_chars == 0:
+        return "en"
+    return "ar" if arabic_chars >= latin_chars else "en"
+
+
 def _normalize_time_period_phrases(text: str, notes: list[str]) -> str:
     pattern = re.compile(
         r"(?:(?:الساعة)\s*)?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<period>الصبح|الصباح|الفجر|العصر|المسا|المساء|بعد\s+الظهر)"

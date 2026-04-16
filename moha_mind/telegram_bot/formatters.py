@@ -1,10 +1,67 @@
 """Telegram message formatters - make output beautiful for Telegram."""
 
+import re
+
+from telegram.constants import ParseMode
+from telegram.helpers import escape_markdown as telegram_escape_markdown
+
 
 def escape_markdown(text: str) -> str:
     """Escape special MarkdownV2 characters."""
-    special = r"_*[]()~`>#+-=|{}.!"
-    return "".join(f"\\{c}" if c in special else c for c in text)
+    return telegram_escape_markdown(text, version=2)
+
+
+def _format_inline_markdown_v2(text: str) -> str:
+    parts = re.split(r"(\*\*[^*\n]+\*\*|__[^_\n]+__)", text)
+    formatted = []
+    for part in parts:
+        if not part:
+            continue
+        if (part.startswith("**") and part.endswith("**")) or (part.startswith("__") and part.endswith("__")):
+            formatted.append(f"*{escape_markdown(part[2:-2])}*")
+        else:
+            formatted.append(escape_markdown(part))
+    return "".join(formatted)
+
+
+def format_telegram_markdown(text: str) -> str:
+    """Convert a safe subset of common Markdown to Telegram MarkdownV2."""
+    lines = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            lines.append("")
+            continue
+
+        heading = re.match(r"^#{1,6}\s+(.+)$", stripped)
+        if heading:
+            lines.append(f"*{escape_markdown(heading.group(1).strip())}*")
+            continue
+
+        unordered = re.match(r"^[-*]\s+(.+)$", stripped)
+        if unordered:
+            lines.append(f"• {_format_inline_markdown_v2(unordered.group(1))}")
+            continue
+
+        ordered = re.match(r"^(\d+)\.\s+(.+)$", stripped)
+        if ordered:
+            lines.append(f"{ordered.group(1)}\\. {_format_inline_markdown_v2(ordered.group(2))}")
+            continue
+
+        lines.append(_format_inline_markdown_v2(raw_line))
+
+    return "\n".join(lines)
+
+
+async def reply_markdown(message, text: str) -> None:
+    """Reply using MarkdownV2 with a plain-text fallback."""
+    if not text or not text.strip():
+        return
+
+    try:
+        await message.reply_text(format_telegram_markdown(text), parse_mode=ParseMode.MARKDOWN_V2)
+    except Exception:
+        await message.reply_text(text)
 
 
 def format_briefing(text: str) -> str:

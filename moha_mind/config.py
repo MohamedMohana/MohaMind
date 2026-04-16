@@ -7,8 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLM_PROVIDERS = {
     "zai": {
-        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
-        "default_model": "glm-4-plus",
+        "base_url": "https://api.z.ai/api/paas/v4/",
+        "default_model": "glm-5-turbo",
     },
     "openai": {
         "base_url": None,
@@ -16,27 +16,48 @@ LLM_PROVIDERS = {
     },
 }
 
+LLMProvider = Literal["zai", "openai"]
+LLMStrategy = Literal["solo", "fallback", "verify"]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     zai_api_key: str = ""
-    zai_model: str = "glm-4-plus"
-    zai_base_url: str = "https://open.bigmodel.cn/api/paas/v4/"
+    zai_model: str = "glm-5-turbo"
+    zai_base_url: str = "https://api.z.ai/api/paas/v4/"
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = ""
 
-    primary_llm: Literal["zai", "openai"] = "zai"
+    primary_llm: LLMProvider = "zai"
 
-    fallback_llm: Literal["zai", "openai", "none"] = "openai"
+    # How the secondary LLM is used:
+    #   solo     -> no secondary at all
+    #   fallback -> secondary is only called if primary fails
+    #   verify   -> secondary reviews primary answers for accuracy
+    llm_strategy: LLMStrategy = "fallback"
+
+    # Kept for backwards compatibility with older .env files.
+    # If set, it acts as a shortcut to derive strategy + secondary provider.
+    fallback_llm: Literal["zai", "openai", "none", ""] = ""
+
+    # Which provider is used as the secondary brain (fallback or verifier)
+    secondary_llm: Literal["zai", "openai", "none"] = "openai"
+
+    # Verifier behavior (only used when llm_strategy == "verify")
+    verifier_strictness: Literal["lenient", "balanced", "strict"] = "balanced"
+    verifier_max_retries: int = 1
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    telegram_allow_destructive: bool = True
 
     google_credentials_path: str = "./credentials/google_credentials.json"
     google_token_path: str = "./credentials/google_token.json"
@@ -55,52 +76,138 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # ----- Memory router + summaries (Phase A) -----
+    # When enabled, the system prompt stops pasting every category in full
+    # and instead injects rolling summaries plus the top-K relevant categories.
+    memory_router_enabled: bool = True
+    memory_router_max_categories: int = 4
+    memory_summaries_enabled: bool = True
+    memory_summary_model: str = ""  # empty = use primary LLM model
+
+    # ----- Semantic memory (Phase B) -----
+    # Embedding backend: 'none' | 'openai' | 'local'
+    #   none   -> semantic search disabled (FTS5 only)
+    #   openai -> uses openai_api_key with text-embedding-3-small by default
+    #   local  -> uses sentence-transformers locally (requires optional dep)
+    embedding_backend: Literal["none", "openai", "local"] = "none"
+    embedding_model: str = ""  # auto-pick based on backend when empty
+    semantic_top_k: int = 5
+
+    # ----- Nightly consolidator (Phase C) -----
+    consolidator_enabled: bool = False
+    # 'auto' applies all changes silently, 'confirm' queues all for approval,
+    # 'hybrid' auto-applies low-risk additions and asks for conflicts/sensitive writes.
+    consolidator_mode: Literal["auto", "confirm", "hybrid"] = "hybrid"
+    consolidator_time: str = "02:30"
+    consolidator_send_digest: bool = True
+
+    # ----- Privacy tiers (cross-cutting) -----
+    # Comma-separated category names. Sensitive categories:
+    #   - are redacted before being sent to the verifier
+    #   - are redacted before being stored in sessions.db (when enabled)
+    #   - never appear verbatim in daily_log (when enabled)
+    sensitive_categories: str = "finances,health,documents"
+    privacy_redact_sessions: bool = True
+    privacy_redact_verifier: bool = True
+    privacy_redact_daily_log: bool = True
+
     @property
     def memory_path(self) -> Path:
         return Path(self.memory_dir)
 
-    @property
-    def active_llm_config(self) -> dict:
-        if self.primary_llm == "zai" and self.zai_api_key:
+    def _provider_config(self, provider: str) -> dict | None:
+        if provider == "zai" and self.zai_api_key:
             return {
                 "api_key": self.zai_api_key,
                 "model": self.zai_model,
                 "base_url": self.zai_base_url,
                 "provider": "zai",
             }
-        if self.openai_api_key:
+        if provider == "openai" and self.openai_api_key:
             return {
                 "api_key": self.openai_api_key,
                 "model": self.openai_model,
-                "base_url": None,
+                "base_url": self.openai_base_url or None,
                 "provider": "openai",
             }
+        return None
+
+    @property
+    def active_llm_config(self) -> dict:
+        cfg = self._provider_config(self.primary_llm)
+        if cfg:
+            return cfg
+        other = "openai" if self.primary_llm == "zai" else "zai"
+        fallback_cfg = self._provider_config(other)
+        if fallback_cfg:
+            return fallback_cfg
+        # No keys at all — return a dummy config that will fail politely.
+        if self.primary_llm == "zai":
+            return {
+                "api_key": self.zai_api_key or "missing-key",
+                "model": self.zai_model,
+                "base_url": self.zai_base_url,
+                "provider": "zai",
+            }
         return {
-            "api_key": self.zai_api_key or "missing-key",
-            "model": self.zai_model,
-            "base_url": self.zai_base_url,
-            "provider": "zai",
+            "api_key": self.openai_api_key or "missing-key",
+            "model": self.openai_model,
+            "base_url": self.openai_base_url or None,
+            "provider": "openai",
         }
 
     @property
+    def _resolved_secondary_provider(self) -> str:
+        """Decide which provider is the secondary brain.
+
+        Precedence:
+          1. Legacy `fallback_llm` env value (when set to a real provider) —
+             this keeps backwards compatibility with existing .env files.
+          2. Explicit `secondary_llm` env value (when not 'none').
+          3. The opposite of the primary provider.
+        """
+        if self.fallback_llm and self.fallback_llm not in ("none", ""):
+            return self.fallback_llm
+        if self.secondary_llm and self.secondary_llm != "none":
+            return self.secondary_llm
+        return "openai" if self.primary_llm == "zai" else "zai"
+
+    @property
+    def _strategy_effective(self) -> LLMStrategy:
+        """Normalize legacy config to a strategy value."""
+        # Legacy: fallback_llm="none" used to mean "no secondary".
+        if self.secondary_llm == "none" or self.fallback_llm == "none":
+            return "solo"
+        return self.llm_strategy
+
+    @property
     def fallback_llm_config(self) -> dict | None:
-        if self.fallback_llm == "none":
+        """Return the secondary LLM config when it should act as a FALLBACK.
+
+        Returns None when the strategy is not "fallback" or no secondary key exists.
+        """
+        if self._strategy_effective != "fallback":
             return None
-        if self.fallback_llm == "openai" and self.openai_api_key:
-            return {
-                "api_key": self.openai_api_key,
-                "model": self.openai_model,
-                "base_url": None,
-                "provider": "openai",
-            }
-        if self.fallback_llm == "zai" and self.zai_api_key:
-            return {
-                "api_key": self.zai_api_key,
-                "model": self.zai_model,
-                "base_url": self.zai_base_url,
-                "provider": "zai",
-            }
-        return None
+        return self._provider_config(self._resolved_secondary_provider)
+
+    @property
+    def verifier_llm_config(self) -> dict | None:
+        """Return the secondary LLM config when it should act as a VERIFIER."""
+        if self._strategy_effective != "verify":
+            return None
+        return self._provider_config(self._resolved_secondary_provider)
+
+    @property
+    def secondary_llm_config(self) -> dict | None:
+        """Return the secondary LLM config (either fallback or verifier role)."""
+        if self._strategy_effective == "solo":
+            return None
+        return self._provider_config(self._resolved_secondary_provider)
+
+    @property
+    def effective_strategy(self) -> LLMStrategy:
+        """Public accessor for the resolved strategy."""
+        return self._strategy_effective
 
 
 settings = Settings()

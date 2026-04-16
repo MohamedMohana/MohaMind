@@ -13,12 +13,22 @@ from typing import Any, Awaitable, Callable, Literal, get_args, get_origin
 from openai import AsyncOpenAI
 
 from moha_mind.agent.connected_memory import ConnectedMemory
+from moha_mind.agent.embeddings import build_embedder
 from moha_mind.agent.energy_tracker import EnergyTracker
+from moha_mind.agent.memory import MEMORY_FILES as MEMORY_FILES_KEYS
 from moha_mind.agent.memory import MemoryManager
+from moha_mind.agent.memory_router import MemoryRouter
+from moha_mind.agent.memory_summarizer import MemorySummarizer
+from moha_mind.agent.semantic_index import SemanticIndex
 from moha_mind.agent.session_store import SessionStore
 from moha_mind.agent.system_prompt import build_system_prompt
+from moha_mind.agent.verifier import Verifier, VerifierConfig, VerifierVerdict
 from moha_mind.config import settings
-from moha_mind.utils.arabic_support import build_arabic_understanding_context, normalize_colloquial_arabic
+from moha_mind.utils.arabic_support import (
+    build_arabic_understanding_context,
+    detect_language,
+    normalize_colloquial_arabic,
+)
 from moha_mind.utils.logging_config import log
 
 
@@ -40,7 +50,43 @@ class MohaMindAgent:
         self.conversations: dict[str, list[dict]] = {}
         self._tool_handlers: dict[str, Callable[..., Awaitable[str]]] = {}
 
-        log.info(f"Agent initialized with {self.provider} (model: {self.model})")
+        self.strategy: str = getattr(settings, "effective_strategy", "fallback")
+        self.verifier: Verifier | None = self._build_verifier()
+
+        self.router = MemoryRouter(self.memory, llm_client=self.client, llm_model=self.model)
+        self.summarizer = MemorySummarizer(self.memory, llm_client=self.client, llm_model=self.model)
+
+        self.embedder = build_embedder()
+        self.semantic_index = SemanticIndex(self.memory, self.embedder)
+        if self.embedder:
+            log.info(f"Semantic memory enabled: {self.embedder.provider} ({self.embedder.model})")
+
+        log.info(
+            f"Agent initialized with {self.provider} (model: {self.model}) | strategy={self.strategy}"
+            + (f" | verifier={self.verifier.provider}:{self.verifier.model}" if self.verifier else "")
+        )
+
+    def _build_verifier(self) -> Verifier | None:
+        if getattr(settings, "effective_strategy", "fallback") != "verify":
+            return None
+        verifier_cfg = getattr(settings, "verifier_llm_config", None)
+        if not verifier_cfg:
+            log.warning("LLM strategy is 'verify' but no verifier LLM is configured. Verification disabled.")
+            return None
+        try:
+            return Verifier(
+                VerifierConfig(
+                    api_key=verifier_cfg["api_key"],
+                    model=verifier_cfg["model"],
+                    base_url=verifier_cfg.get("base_url"),
+                    provider=verifier_cfg.get("provider", "unknown"),
+                    strictness=getattr(settings, "verifier_strictness", "balanced"),
+                    max_retries=max(1, int(getattr(settings, "verifier_max_retries", 1))),
+                )
+            )
+        except Exception as exc:
+            log.warning(f"Failed to build verifier: {exc}")
+            return None
 
     def register_tool(self, name: str, handler: Callable[..., Awaitable[str]]) -> None:
         """Register an external tool handler (from MCP servers)."""
@@ -155,6 +201,29 @@ class MohaMindAgent:
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": "Optional: specific categories to search",
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "semantic_search_memory",
+                    "description": (
+                        "Semantic search across memory (finds conceptually related lines, not just exact words). "
+                        "Use when the user asks vague or paraphrased questions."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Natural-language search query"},
+                            "top_k": {"type": "integer", "description": "Max results (default 5)"},
+                            "categories": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Optional: restrict to these categories",
                             },
                         },
                         "required": ["query"],
@@ -371,13 +440,29 @@ class MohaMindAgent:
                     return f"Saved to {arguments['category']}{extra}"
 
                 case "search_memory":
-                    results = self.memory.search(
+                    return self._hybrid_search_memory(
                         arguments["query"],
                         arguments.get("categories"),
                     )
-                    if not results:
-                        return "No results found"
-                    return "\n".join(f"[{r['category']}:{r['line_number']}] {r['context']}" for r in results[:10])
+
+                case "semantic_search_memory":
+                    if not self.semantic_index.is_available():
+                        return "Semantic search is not enabled. (Set EMBEDDING_BACKEND to 'openai' or 'local'.)"
+                    try:
+                        self.semantic_index.sync()
+                    except Exception as exc:
+                        log.debug(f"Semantic sync during search failed: {exc}")
+                    semantic = self.semantic_index.search(
+                        arguments["query"],
+                        top_k=int(arguments.get("top_k") or settings.semantic_top_k or 5),
+                        categories=arguments.get("categories"),
+                    )
+                    if not semantic:
+                        return "No semantic matches."
+                    lines = []
+                    for r in semantic:
+                        lines.append(f"[{r.category}:{r.line_number} · {r.score:.2f}] {r.chunk}")
+                    return "\n".join(lines)
 
                 case "search_sessions":
                     results = self.session_store.search_messages(
@@ -441,6 +526,41 @@ class MohaMindAgent:
             log.error(f"Tool '{tool_name}' execution failed: {e}")
             return f"Error: {str(e)}"
 
+    def _hybrid_search_memory(self, query: str, categories: list[str] | None) -> str:
+        """FTS/substring results first, semantic results merged in below."""
+        lexical = self.memory.search(query, categories)
+        lexical_chunks = [f"[{r['category']}:{r['line_number']}] {r['context']}" for r in lexical[:10]]
+
+        semantic_chunks: list[str] = []
+        if self.semantic_index.is_available():
+            try:
+                self.semantic_index.sync()
+                semantic = self.semantic_index.search(
+                    query,
+                    top_k=int(getattr(settings, "semantic_top_k", 5) or 5),
+                    categories=categories,
+                )
+                lexical_lines = {(r["category"], r["line_number"]) for r in lexical}
+                for r in semantic:
+                    if (r.category, r.line_number) in lexical_lines:
+                        continue
+                    semantic_chunks.append(f"[{r.category}:{r.line_number} · sim={r.score:.2f}] {r.chunk}")
+            except Exception as exc:
+                log.debug(f"Semantic search branch failed: {exc}")
+
+        out: list[str] = []
+        if lexical_chunks:
+            out.append("Exact matches:")
+            out.extend(lexical_chunks)
+        if semantic_chunks:
+            if out:
+                out.append("")
+            out.append("Related (semantic):")
+            out.extend(semantic_chunks)
+        if not out:
+            return "No results found"
+        return "\n".join(out)
+
     def _truncate_text(self, text: str, limit: int = 180) -> str:
         clean = " ".join(text.split())
         if len(clean) <= limit:
@@ -455,6 +575,32 @@ class MohaMindAgent:
                 f"[{result['chat_id']} | {result['role']} | {when}] {self._truncate_text(result['content'])}"
             )
         return "\n".join(lines)
+
+    def _route_memory_context(self, message: str) -> tuple[list[str] | None, dict[str, str] | None]:
+        """Pick focus categories + summaries for the system prompt.
+
+        Returns (None, None) when the memory router is disabled — in that case
+        the prompt falls back to the legacy full-dump behavior.
+        """
+        if not getattr(settings, "memory_router_enabled", True):
+            return None, None
+
+        max_cats = max(1, int(getattr(settings, "memory_router_max_categories", 4)))
+        try:
+            decision = self.router.pick(message, max_categories=max_cats)
+            focus = decision.categories
+        except Exception as exc:
+            log.debug(f"Memory router failed, falling back to defaults: {exc}")
+            focus = ["profile", "tasks", "reminders"]
+
+        summaries: dict[str, str] | None = None
+        if getattr(settings, "memory_summaries_enabled", True):
+            try:
+                summaries = self.summarizer.get_summaries(list(MEMORY_FILES_KEYS))
+            except Exception as exc:
+                log.debug(f"Summary fetch failed: {exc}")
+                summaries = None
+        return focus, summaries
 
     def _build_recall_context(self, message: str, chat_id: str) -> str:
         normalized_message, _ = normalize_colloquial_arabic(message)
@@ -476,27 +622,27 @@ class MohaMindAgent:
             lines.append(f"- [{when}] {result['role']}: {self._truncate_text(result['content'], 140)}")
         return "\n".join(lines)
 
-    def recall(self, query: str, chat_id: str = "default", limit: int = 5) -> str:
+    def recall(self, query: str, chat_id: str = "default", limit: int = 5, language: str = "en") -> str:
         memory_results = self.memory.search(query)[:limit]
         session_results = self.session_store.search_messages(query, chat_id=chat_id, limit=limit)
 
         if not memory_results and not session_results:
+            if language == "ar":
+                return f"لا توجد نتائج عن «{query}» في الذاكرة أو المحادثات السابقة."
             return f"No results found for '{query}' in memory or past conversations."
 
         lines = []
 
         if memory_results:
-            lines.append("### Structured Memory")
+            lines.append("### الذاكرة المنظمة" if language == "ar" else "### Structured Memory")
             for result in memory_results:
                 snippet = self._truncate_text(result["matched_line"], 120)
-                lines.append(
-                    f"- [{result['category']}:{result['line_number']}] {snippet}"
-                )
+                lines.append(f"- [{result['category']}:{result['line_number']}] {snippet}")
 
         if session_results:
             if lines:
                 lines.append("")
-            lines.append("### Past Conversations")
+            lines.append("### المحادثات السابقة" if language == "ar" else "### Past Conversations")
             for result in session_results:
                 when = result.get("created_at", "").replace("T", " ")
                 lines.append(f"- [{when}] {result['role']}: {self._truncate_text(result['content'], 120)}")
@@ -515,6 +661,8 @@ class MohaMindAgent:
         fallback = settings.fallback_llm_config
         if not fallback:
             return False
+        if fallback.get("provider") == self.provider and fallback.get("model") == self.model:
+            return False
         self.client = AsyncOpenAI(
             api_key=fallback["api_key"],
             base_url=fallback.get("base_url"),
@@ -524,13 +672,36 @@ class MohaMindAgent:
         log.info(f"Switched to fallback LLM: {self.provider} ({self.model})")
         return True
 
+    async def _chat_completion_with_fallback(self, **kwargs):
+        try:
+            return await self.client.chat.completions.create(model=self.model, **kwargs)
+        except Exception as e:
+            log.error(f"{self.provider} API error: {e}")
+            if not self._switch_to_fallback():
+                raise
+            try:
+                return await self.client.chat.completions.create(model=self.model, **kwargs)
+            except Exception as e2:
+                log.error(f"Fallback ({self.provider}) also failed: {e2}")
+                raise
+
     async def chat(self, message: str, chat_id: str = "default") -> str:
         """Main conversation method. Process a user message and return a response."""
         conversation = self._get_conversation(chat_id)
         recall_context = self._build_recall_context(message, chat_id)
         arabic_context = build_arabic_understanding_context(message)
         extra_parts = [part for part in (arabic_context, recall_context) if part]
-        system_prompt = build_system_prompt(self.memory, extra_context="\n\n".join(extra_parts))
+
+        focus, summaries = self._route_memory_context(message)
+        system_prompt = build_system_prompt(
+            self.memory,
+            extra_context="\n\n".join(extra_parts),
+            focus_categories=focus,
+            summaries=summaries,
+        )
+
+        # Tag memory writes made during this turn as user-initiated.
+        self.memory.set_write_source("user")
 
         conversation.append({"role": "user", "content": message})
         self.session_store.append_message(chat_id, "user", message)
@@ -540,8 +711,7 @@ class MohaMindAgent:
 
         for round_num in range(max_tool_rounds):
             try:
-                response = await self.client.chat.completions.create(
-                    model=self.model,
+                response = await self._chat_completion_with_fallback(
                     messages=[
                         {"role": "system", "content": system_prompt},
                         *conversation[-20:],
@@ -552,25 +722,8 @@ class MohaMindAgent:
                     temperature=0.7,
                 )
             except Exception as e:
-                log.error(f"{self.provider} API error: {e}")
-                if self._switch_to_fallback():
-                    try:
-                        response = await self.client.chat.completions.create(
-                            model=self.model,
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                *conversation[-20:],
-                            ],
-                            tools=self.get_tools_schema(),
-                            tool_choice="auto",
-                            max_tokens=1500,
-                            temperature=0.7,
-                        )
-                    except Exception as e2:
-                        log.error(f"Fallback ({self.provider}) also failed: {e2}")
-                        return "I'm having trouble connecting right now. Please try again in a moment."
-                else:
-                    return "I'm having trouble connecting right now. Please try again in a moment."
+                log.error(f"Chat generation failed: {e}")
+                return "I'm having trouble connecting right now. Please try again in a moment."
 
             choice = response.choices[0]
             assistant_message = choice.message
@@ -604,6 +757,13 @@ class MohaMindAgent:
             final_response = "I processed your request but couldn't generate a final response. Please try again."
             conversation.append({"role": "assistant", "content": final_response})
 
+        final_response = await self._maybe_verify_and_revise(
+            message=message,
+            current_reply=final_response,
+            conversation=conversation,
+            system_prompt=system_prompt,
+        )
+
         if len(conversation) > 50:
             self.conversations[chat_id] = conversation[-30:]
 
@@ -611,20 +771,90 @@ class MohaMindAgent:
         self.energy_tracker.log_interaction(message, len(final_response))
         return final_response
 
+    async def _maybe_verify_and_revise(
+        self,
+        *,
+        message: str,
+        current_reply: str,
+        conversation: list[dict],
+        system_prompt: str,
+    ) -> str:
+        """If the verifier strategy is enabled, ask it to check the reply and optionally retry."""
+        if not self.verifier or not current_reply.strip():
+            return current_reply
+
+        language = detect_language(message)
+        max_retries = max(1, self.verifier.config.max_retries)
+        reply = current_reply
+
+        for attempt in range(max_retries):
+            try:
+                verdict: VerifierVerdict = await self.verifier.review(message, reply, language_hint=language)
+            except Exception as exc:
+                log.warning(f"Verifier review crashed: {exc}")
+                return reply
+
+            if verdict.ok or verdict.severity in ("none", "low"):
+                if verdict.issues:
+                    log.info(
+                        f"Verifier accepted reply (severity={verdict.severity}) with minor notes: {verdict.issues}"
+                    )
+                return reply
+
+            log.info(
+                f"Verifier flagged reply (severity={verdict.severity}, attempt={attempt + 1}/{max_retries}): "
+                f"{verdict.issues} | suggestion: {verdict.suggestion}"
+            )
+
+            revise_prompt = (
+                "A second reviewer (the verifier) checked your previous answer and found issues.\n"
+                f"Issues: {'; '.join(verdict.issues) or 'unspecified'}\n"
+                f"Reviewer suggestion: {verdict.suggestion or 'revise the reply'}\n\n"
+                "Rewrite your previous answer to address these issues. Keep the same language as the user. "
+                "Do not apologize or mention the reviewer — just produce a better answer."
+            )
+
+            try:
+                response = await self._chat_completion_with_fallback(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        *conversation[-20:],
+                        {"role": "user", "content": revise_prompt},
+                    ],
+                    max_tokens=1500,
+                    temperature=0.5,
+                )
+            except Exception as exc:
+                log.warning(f"Verifier-driven revision failed: {exc}")
+                return reply
+
+            new_reply = (response.choices[0].message.content or "").strip()
+            if not new_reply:
+                return reply
+
+            # Replace the last assistant turn in the conversation with the revised one.
+            for idx in range(len(conversation) - 1, -1, -1):
+                if conversation[idx].get("role") == "assistant":
+                    conversation[idx] = {"role": "assistant", "content": new_reply}
+                    break
+            reply = new_reply
+
+        return reply
+
     async def generate_briefing(self) -> str:
         """Generate the morning briefing without tool calls - just a direct LLM response."""
         system_prompt = build_system_prompt(
-            self.memory, extra_context="MODE: Morning Briefing - Generate a comprehensive daily briefing"
+            self.memory, extra_context="MODE: Morning Briefing - Generate a comprehensive daily briefing in Arabic"
         )
         briefing_request = (
-            "Generate my morning briefing for today. Include: calendar events, "
-            "priority tasks, expiring items, weather-appropriate suggestions, "
-            "and any connected insights. Be warm, concise, and organized."
+            "اكتب ملخص الصباح لهذا اليوم باللغة العربية الواضحة والمهنية. "
+            "ضمّن مواعيد التقويم، المهام ذات الأولوية، العناصر القريبة من الانتهاء، "
+            "اقتراحات مناسبة لليوم، وأي روابط مهمة بين المعلومات. "
+            "اجعل النبرة دافئة ومباشرة، واستخدم عناوين قصيرة ونقاطًا مرتبة."
         )
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            response = await self._chat_completion_with_fallback(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": briefing_request},
@@ -657,8 +887,7 @@ class MohaMindAgent:
                         }
                     )
 
-                response = await self.client.chat.completions.create(
-                    model=self.model,
+                response = await self._chat_completion_with_fallback(
                     messages=conversation,
                     tools=self.get_tools_schema(),
                     tool_choice="auto",
@@ -671,20 +900,20 @@ class MohaMindAgent:
 
         except Exception as e:
             log.error(f"Briefing generation failed: {e}")
-            return f"Good morning! I had trouble generating your full briefing today. Error: {e}"
+            return f"صباح الخير. واجهت مشكلة أثناء إعداد ملخصك الكامل اليوم. الخطأ: {e}"
 
     async def generate_weekly_review(self) -> str:
         """Generate the weekly life review."""
-        system_prompt = build_system_prompt(self.memory, extra_context="MODE: Weekly Life Review")
+        system_prompt = build_system_prompt(self.memory, extra_context="MODE: Weekly Life Review - Arabic")
         review_request = (
-            "Generate my weekly life review. Include: tasks completed vs missed, "
-            "patterns you noticed, finance summary, health habits, social connections, "
-            "and suggestions for next week. Be constructive and encouraging."
+            "اكتب المراجعة الأسبوعية باللغة العربية الواضحة والمهنية. "
+            "ضمّن المهام المكتملة والمتأخرة، الأنماط التي لاحظتها، ملخصًا ماليًا، "
+            "العادات الصحية، العلاقات الاجتماعية، واقتراحات عملية للأسبوع القادم. "
+            "كن بنّاءً ومباشرًا دون إطالة."
         )
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            response = await self._chat_completion_with_fallback(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": review_request},
@@ -717,8 +946,7 @@ class MohaMindAgent:
                         }
                     )
 
-                response = await self.client.chat.completions.create(
-                    model=self.model,
+                response = await self._chat_completion_with_fallback(
                     messages=conversation,
                     tools=self.get_tools_schema(),
                     tool_choice="auto",
@@ -730,4 +958,4 @@ class MohaMindAgent:
             return choice.message.content or ""
         except Exception as e:
             log.error(f"Weekly review generation failed: {e}")
-            return "Weekly review generation failed. I'll try again next week."
+            return "تعذر إعداد المراجعة الأسبوعية الآن. سأحاول مرة أخرى في الموعد القادم."

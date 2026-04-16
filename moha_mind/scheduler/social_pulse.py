@@ -8,6 +8,16 @@ from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.utils.logging_config import log
 
 
+def _days_ago(days: int) -> str:
+    if days == 1:
+        return "منذ يوم واحد"
+    if days == 2:
+        return "منذ يومين"
+    if 3 <= days <= 10:
+        return f"منذ {days} أيام"
+    return f"منذ {days} يومًا"
+
+
 class SocialPulse:
     def __init__(self, memory: MemoryManager, bot: MohaMindBot):
         self.memory = memory
@@ -77,13 +87,13 @@ class SocialPulse:
             log.info("Social Pulse: all caught up!")
             return
 
-        lines = ["📱 Social Pulse - Time to Reconnect!\n"]
+        lines = ["📱 نبض العلاقات - حان وقت التواصل\n"]
         for person, days, threshold in sorted(overdue, key=lambda x: x[1], reverse=True)[:5]:
-            lines.append(f"  - {person}: Last contact {days} days ago")
+            lines.append(f"  - {person}: آخر تواصل {_days_ago(days)}")
             if days > 60:
-                lines.append("    💡 It's been a while - maybe send a message or set up a call?")
+                lines.append("    💡 مر وقت طويل. قد يكون مناسبًا إرسال رسالة أو ترتيب مكالمة.")
 
-        lines.append("\nUse /social to see full details or tell me to log a contact.")
+        lines.append("\nاستخدم \u200e/social لرؤية التفاصيل أو أخبرني بتسجيل تواصل جديد.")
 
         from moha_mind.telegram_bot.formatters import truncate_message
 

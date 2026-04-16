@@ -1,75 +1,209 @@
 """Telegram bot command and message handlers."""
 
-from telegram import Update
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from moha_mind.agent.core import MohaMindAgent
-from moha_mind.agent.memory import MemoryManager
-from moha_mind.telegram_bot.formatters import truncate_message
+from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
+from moha_mind.config import settings
+from moha_mind.telegram_bot.formatters import reply_markdown, truncate_message
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.timezone import ksa_time_str
+
+LTR = "\u200e"
+
+PENDING_ACTION_TTL_SECONDS = 5 * 60
+
+ARABIC_AGENT_INSTRUCTION = (
+    "أجب المستخدم باللغة العربية الواضحة والمهنية، بنبرة ودودة ومباشرة. "
+    "استخدم عناوين قصيرة ونقاطًا عند الحاجة، ولا تستخدم الإنجليزية إلا لأسماء الأوامر أو المصطلحات التقنية. "
+    "عند ذكر وقت بصيغة 12 ساعة، اكتب ص أو م بوضوح مثل 1:30 م أو 5:00 ص."
+)
+
+
+def command(name: str) -> str:
+    return f"{LTR}/{name}"
+
+
+def arabic_agent_request(request: str) -> str:
+    return f"{ARABIC_AGENT_INSTRUCTION}\n\n{request}"
+
+
+def arabic_days_phrase(days: int) -> str:
+    if days == 0:
+        return "اليوم"
+    if days == 1:
+        return "غدًا"
+    if days == 2:
+        return "بعد يومين"
+    if 3 <= days <= 10:
+        return f"بعد {days} أيام"
+    return f"بعد {days} يومًا"
 
 
 class Handlers:
     def __init__(self, agent: MohaMindAgent, memory: MemoryManager):
         self.agent = agent
         self.memory = memory
+        # Short-lived store for pending destructive confirmations (keyed by token).
+        self._pending_actions: dict[str, dict[str, Any]] = {}
+        # Injected later by the app bootstrap so /consolidate, /pending work.
+        self.consolidator = None
+
+    def attach_consolidator(self, consolidator) -> None:
+        self.consolidator = consolidator
+
+    async def _reply(self, update: Update, text: str) -> None:
+        if update.message:
+            await reply_markdown(update.message, text)
+
+    def _remember_action(self, chat_id: str, action: dict[str, Any]) -> str:
+        """Store a destructive action for later confirmation. Returns a token."""
+        self._purge_expired_actions()
+        token = f"{chat_id}-{int(time.time() * 1000)}"
+        self._pending_actions[token] = {
+            "chat_id": chat_id,
+            "created_at": time.time(),
+            **action,
+        }
+        return token
+
+    def _pop_action(self, token: str) -> dict[str, Any] | None:
+        action = self._pending_actions.pop(token, None)
+        if not action:
+            return None
+        if time.time() - action["created_at"] > PENDING_ACTION_TTL_SECONDS:
+            return None
+        return action
+
+    def _purge_expired_actions(self) -> None:
+        cutoff = time.time() - PENDING_ACTION_TTL_SECONDS
+        stale = [k for k, v in self._pending_actions.items() if v["created_at"] < cutoff]
+        for key in stale:
+            self._pending_actions.pop(key, None)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         user = update.effective_user
+        greeting = f"السلام عليكم يا {user.first_name} 👋" if user and user.first_name else "السلام عليكم 👋"
         welcome = (
-            f"Assalamu Alaikum {user.first_name}! 👋\n\n"
-            f"I'm MohaMind, your personal AI agent.\n"
-            f"I remember everything about you and help manage your daily life.\n\n"
-            f"Here's what I can do:\n"
-            f"📋 /tasks - View your tasks\n"
-            f"➕ /add <task> - Add a task\n"
-            f"📅 /calendar - Today's schedule\n"
-            f"🚗 /car - Vehicle status\n"
-            f"💰 /pay - Upcoming bills\n"
-            f"👨‍👩‍👧‍👦 /family - Family updates\n"
-            f"🔔 /expiry - Expiring items\n"
-            f"🧠 /remember <text> - Remember something\n"
-            f"🔍 /recall <text> - Search memories and past conversations\n"
-            f"🌅 /briefing - Morning briefing\n"
-            f"📊 /review - Weekly review\n"
-            f"📝 /note <text> - Quick note\n\n"
-            f"Or just talk to me - I'll remember everything! 🧠"
+            f"{greeting}\n\n"
+            f"أنا MohaMind، مساعدك الشخصي.\n"
+            f"أساعدك في تنظيم يومك ومتابعة مهامك، مواعيدك، العائلة، التذكيرات، وما يحتاج انتباهك.\n\n"
+            f"اكتب {command('help')} لعرض جميع الأوامر، أو كلّمني بشكل طبيعي وسأرتّب المعلومات بنفسي."
         )
-        await update.message.reply_text(welcome)
+        await self._reply(update, welcome)
+
+    async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /help command — list all available commands."""
+        sections = [
+            ("📅 المهام والتذكير", [
+                f"{command('today')} — جدول اليوم",
+                f"{command('tomorrow')} — جدول الغد",
+                f"{command('week')} — نظرة على الأسبوع",
+                f"{command('tasks')} — المهام النشطة",
+                f"{command('add')} <نص> — أضف مهمة",
+                f"{command('done')} [رقم] — أنهِ مهمة",
+                f"{command('untask')} <رقم> — احذف مهمة",
+                f"{command('remind')} <نص> — أنشئ تذكيرًا",
+                f"{command('reminders')} [أيام] — التذكيرات القادمة",
+            ]),
+            ("🧠 الذاكرة", [
+                f"{command('remember')} <نص> — احفظ معلومة",
+                f"{command('recall')} <نص> — ابحث في الذاكرة والمحادثات",
+                f"{command('memory')} — اعرض تصنيفات الذاكرة",
+                f"{command('show')} <تصنيف> — اعرض محتوى تصنيف",
+                f"{command('forget')} <نص> — احذف معلومة (مع تأكيد)",
+                f"{command('notes')} — قائمة الملاحظات",
+                f"{command('note')} <عنوان>: <محتوى> — أضف ملاحظة",
+                f"{command('read_note')} <عنوان> — اقرأ ملاحظة",
+                f"{command('delete_note')} <عنوان> — احذف ملاحظة",
+            ]),
+            ("🏠 الحياة اليومية", [
+                f"{command('calendar')} — التقويم",
+                f"{command('car')} — السيارة",
+                f"{command('pay')} — المدفوعات",
+                f"{command('health')} — الصحة",
+                f"{command('family')} — العائلة",
+                f"{command('social')} — التواصل",
+                f"{command('expiry')} [أيام] — العناصر القريبة من الانتهاء",
+                f"{command('shopping')} — قائمة المشتريات",
+                f"{command('radar')} — رادار الانتباه",
+            ]),
+            ("📊 الملخصات", [
+                f"{command('briefing')} — ملخص الصباح",
+                f"{command('review')} — المراجعة الأسبوعية",
+                f"{command('status')} — حالة النظام",
+            ]),
+        ]
+        lines = []
+        for title, items in sections:
+            lines.append(f"*{title}*")
+            lines.extend(items)
+            lines.append("")
+        lines.append("اكتب لي بشكل طبيعي وسأرتّب المعلومة في مكانها الصحيح.")
+        await self._reply(update, "\n".join(lines).strip())
+
+    async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /status — quick system state."""
+        strategy = settings.effective_strategy
+        strategy_ar = {"solo": "بدون مساعد", "fallback": "احتياطي", "verify": "مراجع"}.get(strategy, strategy)
+
+        active_tasks = [t for t in self.memory.get_task_section() if not t["done"]]
+        expiring = self.memory.get_expiring_items(30)
+
+        verifier = self.agent.verifier
+        lines = [
+            f"🧠 *المزوّد الأساسي:* {self.agent.provider} ({self.agent.model})",
+            f"⚙️ *الوضع:* {strategy_ar}",
+        ]
+        if verifier:
+            lines.append(f"🧐 *المراجع:* {verifier.provider} ({verifier.model})")
+        lines.extend(
+            [
+                f"📋 *مهام نشطة:* {len(active_tasks)}",
+                f"⏰ *ينتهي خلال 30 يومًا:* {len(expiring)}",
+                f"🕐 {ksa_time_str()}",
+            ]
+        )
+        await self._reply(update, "\n".join(lines))
 
     async def today(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /today command."""
         response = await self.agent.chat(
-            "What's on my schedule for today? Show me everything: tasks, calendar, appointments.",
+            arabic_agent_request("اعرض جدول اليوم كاملًا: المهام، التقويم، المواعيد، وأي شيء مهم يحتاج انتباهي."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def tomorrow(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /tomorrow command."""
         response = await self.agent.chat(
-            "What's on my schedule for tomorrow? Show me tasks, calendar, appointments, and anything important.",
+            arabic_agent_request("اعرض جدول الغد: المهام، التقويم، المواعيد، وأي شيء مهم يحتاج انتباهي."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /tasks command."""
         tasks = self.memory.get_task_section()
         active = [t for t in tasks if not t["done"]]
         if not active:
-            await update.message.reply_text("No active tasks! You're all caught up 🎉")
+            await self._reply(update, "لا توجد مهام نشطة الآن. أمورك مرتبة 🎉")
             return
-        lines = ["📋 Active Tasks:"]
+        lines = ["📋 المهام النشطة:"]
         for i, t in enumerate(active, 1):
-            due_info = f" (due {t['due']})" if t["due"] else ""
+            due_info = f" (الموعد: {LTR}{t['due']})" if t["due"] else ""
             priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
             lines.append(f"{priority_emoji} {i}. {t['text']}{due_info}")
-        await update.message.reply_text("\n".join(lines))
+        await self._reply(update, "\n".join(lines))
 
     async def reminders(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /reminders command."""
@@ -83,41 +217,43 @@ class Handlers:
                 pass
 
         server = ReminderServer(self.memory)
-        response = await server._list_reminders(days_ahead=days)
+        response = await server._list_reminders(days_ahead=days, language="ar")
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def remind(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /remind command."""
         if not context.args:
-            await update.message.reply_text("Usage: /remind <message with date/time>")
+            await self._reply(update, f"الاستخدام: {command('remind')} <النص مع التاريخ أو الوقت>")
             return
         reminder_text = " ".join(context.args)
         response = await self.agent.chat(
-            (
-                "Set a timed reminder for this request. "
-                "Support colloquial Arabic and Saudi/Gulf dialect naturally. "
-                "Convert any relative date/time into an exact Asia/Riyadh datetime and use the reminder tools: "
+            arabic_agent_request(
+                "أنشئ تذكيرًا موقّتًا لهذا الطلب. افهم العربية العامية واللهجة السعودية/الخليجية طبيعيًا. "
+                "حوّل أي تاريخ أو وقت نسبي إلى وقت محدد بتوقيت Asia/Riyadh، واستخدم أدوات التذكير المناسبة:\n"
+                "للتكرار المرن استخدم حقول times وweekdays وskip_weekends وinterval_days وlead_days عند الحاجة.\n"
                 f"{reminder_text}"
             ),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def add_task(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /add command."""
         if not context.args:
-            await update.message.reply_text(
-                "Usage: /add <task description>\nExample: /add Submit quarterly report [HIGH] due:2026-04-15"
+            await self._reply(
+                update,
+                f"الاستخدام: {command('add')} <وصف المهمة>\n"
+                f"مثال: {command('add')} إرسال التقرير الربع سنوي [HIGH] due:2026-04-15",
             )
             return
         task_text = " ".join(context.args)
         response = await self.agent.chat(
-            f"Add this task: {task_text}",
+            arabic_agent_request(f"أضف هذه المهمة:\n{task_text}"),
             chat_id=str(update.effective_chat.id),
         )
-        await update.message.reply_text(f"✅ {response}")
+        await self._reply(update, f"✅ {response}")
 
     async def done(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /done command."""
@@ -125,12 +261,12 @@ class Handlers:
             tasks = self.memory.get_task_section()
             active = [t for t in tasks if not t["done"]]
             if not active:
-                await update.message.reply_text("No active tasks!")
+                await self._reply(update, "لا توجد مهام نشطة الآن.")
                 return
-            lines = ["Which task to complete? Reply with the number:"]
+            lines = ["أي مهمة تريد إكمالها؟ أرسل رقم المهمة:"]
             for i, t in enumerate(active, 1):
                 lines.append(f"{i}. {t['text']}")
-            await update.message.reply_text("\n".join(lines))
+            await self._reply(update, "\n".join(lines))
             return
 
         try:
@@ -140,61 +276,61 @@ class Handlers:
             if 1 <= task_num <= len(active):
                 task = active[task_num - 1]
                 self.memory.complete_task(task["text"])
-                await update.message.reply_text(f"✅ Done: {task['text']}")
+                await self._reply(update, f"✅ تم: {task['text']}")
             else:
-                await update.message.reply_text("Invalid task number")
+                await self._reply(update, "رقم المهمة غير صحيح.")
         except ValueError:
             task_text = " ".join(context.args)
             success = self.memory.complete_task(task_text)
             if success:
-                await update.message.reply_text(f"✅ Done: {task_text}")
+                await self._reply(update, f"✅ تم: {task_text}")
             else:
-                await update.message.reply_text("Task not found. Use /tasks to see task numbers.")
+                await self._reply(update, f"لم أجد المهمة. استخدم {command('tasks')} لرؤية أرقام المهام.")
 
     async def car(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /car command."""
         response = await self.agent.chat(
-            "Show me my vehicle status: next service, registration, insurance status.",
+            arabic_agent_request("اعرض حالة السيارة: الصيانة القادمة، الاستمارة، التأمين، وأي تنبيه مهم."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def pay(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /pay command."""
         response = await self.agent.chat(
-            "What bills and payments are coming up? Show upcoming bills and subscription renewals.",
+            arabic_agent_request("اعرض الفواتير والمدفوعات القادمة، بما في ذلك الاشتراكات التي ستتجدد قريبًا."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def health(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /health command."""
         response = await self.agent.chat(
-            "Show me my health reminders: medications, upcoming doctor appointments, gym status.",
+            arabic_agent_request("اعرض تذكيرات الصحة: الأدوية، مواعيد الأطباء القادمة، وحالة النادي أو التمارين."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def family(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /family command."""
         response = await self.agent.chat(
-            "Show me family updates: pregnancy status, kids events, upcoming appointments.",
+            arabic_agent_request("اعرض تحديثات العائلة: الحمل، أحداث الأطفال، والمواعيد القادمة."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def social(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /social command."""
         response = await self.agent.chat(
-            "Who should I reach out to? Check my social pulse.",
+            arabic_agent_request("من يحتاج أن أتواصل معه؟ راجع العلاقات وجهّز ملخصًا مختصرًا للأشخاص المهمين."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def expiry(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /expiry command."""
@@ -206,9 +342,9 @@ class Handlers:
                 pass
         items = self.memory.get_expiring_items(days)
         if not items:
-            await update.message.reply_text(f"Nothing expiring in the next {days} days! 🟢")
+            await self._reply(update, f"لا يوجد شيء ينتهي خلال {days} يومًا القادمة 🟢")
             return
-        lines = ["🔔 Expiring Items:"]
+        lines = ["🔔 عناصر قريبة من الانتهاء:"]
         for item in items:
             if item["days_left"] <= 7:
                 emoji = "🔴"
@@ -216,81 +352,332 @@ class Handlers:
                 emoji = "🟡"
             else:
                 emoji = "🟢"
-            lines.append(f"{emoji} [{item['days_left']}d] {item['detail']}")
+            lines.append(f"{emoji} [{arabic_days_phrase(item['days_left'])}] {item['detail']}")
         for part in truncate_message("\n".join(lines)):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def remember(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /remember command."""
         if not context.args:
-            await update.message.reply_text("Usage: /remember <something to remember>")
+            await self._reply(update, f"الاستخدام: {command('remember')} <المعلومة التي تريد حفظها>")
             return
         text = " ".join(context.args)
         response = await self.agent.chat(
-            f"Remember this and save it to the appropriate memory category: {text}",
+            arabic_agent_request(f"احفظ هذه المعلومة في التصنيف المناسب من الذاكرة:\n{text}"),
             chat_id=str(update.effective_chat.id),
         )
-        await update.message.reply_text(f"🧠 {response}")
+        await self._reply(update, f"🧠 {response}")
 
     async def recall(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /recall command."""
         if not context.args:
-            await update.message.reply_text("Usage: /recall <search query>")
+            await self._reply(update, f"الاستخدام: {command('recall')} <كلمات البحث>")
             return
         query = " ".join(context.args)
-        response = self.agent.recall(query, chat_id=str(update.effective_chat.id))
+        response = self.agent.recall(query, chat_id=str(update.effective_chat.id), language="ar")
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def forget(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /forget command."""
+        """Handle /forget command — delete matching memory with confirmation."""
+        if not settings.telegram_allow_destructive:
+            await self._reply(update, "حذف المعلومات معطّل في هذا الإعداد.")
+            return
+
         if not context.args:
-            await update.message.reply_text("Usage: /forget <what to forget>")
+            await self._reply(
+                update,
+                f"الاستخدام: {command('forget')} <نص للبحث>\n"
+                f"أو: {command('forget')} <تصنيف> <نص>  (لتقييد الحذف بتصنيف مثل tasks أو finances)",
+            )
             return
-        text = " ".join(context.args)
-        results = self.memory.search(text)
-        if not results:
-            await update.message.reply_text(f"I don't have anything about '{text}'")
+
+        args = list(context.args)
+        category_filter: str | None = None
+        if len(args) >= 2 and args[0] in MEMORY_FILES:
+            category_filter = args[0]
+            query = " ".join(args[1:])
+        else:
+            query = " ".join(args)
+
+        results = self.memory.search(query, categories=[category_filter] if category_filter else None)
+        actionable = [
+            r for r in results
+            if r["matched_line"].strip()
+            and not r["matched_line"].strip().startswith("#")
+            and not r["matched_line"].strip().startswith("<!--")
+        ]
+
+        if not actionable:
+            await self._reply(update, f"لا توجد لدي معلومات عن: «{query}»")
             return
-        await update.message.reply_text(f"Found {len(results)} matches. I'll remove the relevant entries.")
-        log.info(f"Forget requested: {text} ({len(results)} matches)")
+
+        preview_lines = [f"سأحذف {len(actionable)} سطرًا من الذاكرة:"]
+        for result in actionable[:8]:
+            snippet = result["matched_line"].strip()
+            if len(snippet) > 100:
+                snippet = snippet[:97] + "..."
+            preview_lines.append(f"- [{result['category']}] {snippet}")
+        if len(actionable) > 8:
+            preview_lines.append(f"... و{len(actionable) - 8} أخرى")
+        preview_lines.append("\nهل أنت متأكد؟")
+
+        chat_id = str(update.effective_chat.id)
+        token = self._remember_action(
+            chat_id,
+            {
+                "kind": "forget",
+                "query": query,
+                "category": category_filter,
+                "count": len(actionable),
+            },
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ احذف", callback_data=f"confirm:{token}"),
+                    InlineKeyboardButton("❌ إلغاء", callback_data=f"cancel:{token}"),
+                ]
+            ]
+        )
+        if update.message:
+            await update.message.reply_text("\n".join(preview_lines), reply_markup=keyboard)
+
+    async def memory_overview(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /memory — list memory categories with size and preview."""
+        lines = ["🧠 *تصنيفات الذاكرة*"]
+        for category in MEMORY_FILES.keys():
+            content = self.memory.read(category)
+            size = len(content)
+            if size == 0:
+                lines.append(f"• `{category}` — فارغ")
+            else:
+                lines_count = sum(
+                    1
+                    for ln in content.split("\n")
+                    if ln.strip() and not ln.strip().startswith("#") and not ln.strip().startswith("<!--")
+                )
+                lines.append(f"• `{category}` — {lines_count} سطر، {size} حرف")
+        lines.append(f"\nاستخدم {command('show')} <تصنيف> لعرض المحتوى.")
+        await self._reply(update, "\n".join(lines))
+
+    async def show_memory(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /show <category> — show the content of a memory category."""
+        if not context.args:
+            available = ", ".join(MEMORY_FILES.keys())
+            await self._reply(update, f"الاستخدام: {command('show')} <تصنيف>\nالتصنيفات: {available}")
+            return
+        category = context.args[0].lower().strip()
+        if category not in MEMORY_FILES:
+            await self._reply(update, f"تصنيف غير معروف: «{category}»")
+            return
+        content = self.memory.read(category)
+        if not content.strip():
+            await self._reply(update, f"التصنيف «{category}» فارغ.")
+            return
+        for part in truncate_message(content):
+            await self._reply(update, part)
+
+    async def notes_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /notes — list all saved notes."""
+        notes = self.memory.list_notes()
+        if not notes:
+            await self._reply(update, "لا توجد ملاحظات محفوظة بعد.")
+            return
+        lines = ["📝 *الملاحظات المحفوظة:*"]
+        for note in notes:
+            lines.append(f"• {note}")
+        lines.append(f"\nاستخدم {command('read_note')} <عنوان> لفتح ملاحظة.")
+        await self._reply(update, "\n".join(lines))
+
+    async def read_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /read_note <title>."""
+        if not context.args:
+            await self._reply(update, f"الاستخدام: {command('read_note')} <عنوان الملاحظة>")
+            return
+        title = " ".join(context.args)
+        content = self.memory.read_note(title)
+        if not content:
+            await self._reply(update, f"لم أجد ملاحظة باسم: «{title}»")
+            return
+        for part in truncate_message(content):
+            await self._reply(update, part)
+
+    async def delete_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /delete_note <title> — delete with confirmation."""
+        if not settings.telegram_allow_destructive:
+            await self._reply(update, "حذف المعلومات معطّل في هذا الإعداد.")
+            return
+        if not context.args:
+            await self._reply(update, f"الاستخدام: {command('delete_note')} <عنوان الملاحظة>")
+            return
+        title = " ".join(context.args)
+        if not self.memory.read_note(title):
+            await self._reply(update, f"لم أجد ملاحظة باسم: «{title}»")
+            return
+
+        chat_id = str(update.effective_chat.id)
+        token = self._remember_action(chat_id, {"kind": "delete_note", "title": title})
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ احذف", callback_data=f"confirm:{token}"),
+                    InlineKeyboardButton("❌ إلغاء", callback_data=f"cancel:{token}"),
+                ]
+            ]
+        )
+        if update.message:
+            await update.message.reply_text(
+                f"هل تريد حذف الملاحظة «{title}»؟", reply_markup=keyboard
+            )
+
+    async def untask(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /untask <num> — delete a specific active task."""
+        if not settings.telegram_allow_destructive:
+            await self._reply(update, "حذف المعلومات معطّل في هذا الإعداد.")
+            return
+        if not context.args:
+            await self._reply(update, f"الاستخدام: {command('untask')} <رقم المهمة>")
+            return
+        tasks = self.memory.get_task_section()
+        active = [t for t in tasks if not t["done"]]
+        if not active:
+            await self._reply(update, "لا توجد مهام نشطة لحذفها.")
+            return
+        try:
+            idx = int(context.args[0]) - 1
+        except ValueError:
+            await self._reply(update, "يرجى إدخال رقم المهمة.")
+            return
+        if idx < 0 or idx >= len(active):
+            await self._reply(update, "رقم المهمة خارج النطاق.")
+            return
+
+        task_text = active[idx]["text"]
+        chat_id = str(update.effective_chat.id)
+        token = self._remember_action(chat_id, {"kind": "delete_task", "task_text": task_text})
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ احذف", callback_data=f"confirm:{token}"),
+                    InlineKeyboardButton("❌ إلغاء", callback_data=f"cancel:{token}"),
+                ]
+            ]
+        )
+        if update.message:
+            await update.message.reply_text(f"حذف المهمة: «{task_text}»؟", reply_markup=keyboard)
+
+    async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline-keyboard button callbacks for destructive confirmations."""
+        query = update.callback_query
+        if not query or not query.data:
+            return
+        await query.answer()
+
+        action_type, _, token = query.data.partition(":")
+
+        # Consolidator approvals live outside the short-lived token store so they
+        # can survive restarts; handle them first.
+        if action_type in ("mem_accept", "mem_reject") and self.consolidator:
+            resolved = self.consolidator.resolve(token, accept=(action_type == "mem_accept"))
+            if not resolved:
+                try:
+                    await query.edit_message_text("هذا الاقتراح لم يعد متاحًا.")
+                except Exception:
+                    pass
+                return
+            verb = "حُفظ" if action_type == "mem_accept" else "رُفض"
+            try:
+                await query.edit_message_text(f"✅ {verb}: {resolved.content[:200]}")
+            except Exception:
+                pass
+            return
+
+        pending = self._pop_action(token)
+        if not pending:
+            try:
+                await query.edit_message_text("انتهت صلاحية هذا الطلب.")
+            except Exception:
+                pass
+            return
+
+        if action_type == "cancel":
+            try:
+                await query.edit_message_text("تم الإلغاء.")
+            except Exception:
+                pass
+            return
+
+        if action_type != "confirm":
+            return
+
+        kind = pending.get("kind")
+        if kind == "forget":
+            removed = 0
+            categories = [pending["category"]] if pending.get("category") else list(MEMORY_FILES.keys())
+            for category in categories:
+                removed += self.memory.delete_matches(category, pending["query"])
+            try:
+                await query.edit_message_text(f"✅ حذفت {removed} سطرًا من الذاكرة.")
+            except Exception:
+                pass
+        elif kind == "delete_note":
+            ok = self.memory.delete_note(pending["title"])
+            text = f"✅ حذفت الملاحظة «{pending['title']}»." if ok else "تعذّر حذف الملاحظة."
+            try:
+                await query.edit_message_text(text)
+            except Exception:
+                pass
+        elif kind == "delete_task":
+            removed = self.memory.delete_matches("tasks", pending["task_text"], max_deletions=1)
+            text = "✅ حذفت المهمة." if removed else "لم أستطع حذف المهمة."
+            try:
+                await query.edit_message_text(text)
+            except Exception:
+                pass
+        else:
+            try:
+                await query.edit_message_text("طلب غير معروف.")
+            except Exception:
+                pass
 
     async def calendar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /calendar command."""
         response = await self.agent.chat(
-            "Show me my calendar events for today from Google and Microsoft calendars.",
+            arabic_agent_request("اعرض مواعيد اليوم من تقويم Google وتقويم Microsoft، مع ترتيب واضح حسب الوقت."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def shopping(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /shopping command."""
         shopping_data = self.memory.read("shopping")
         if not shopping_data.strip():
-            await update.message.reply_text("No shopping list yet! Tell me what you need.")
+            await self._reply(update, "لا توجد قائمة مشتريات حتى الآن. أخبرني بما تحتاجه.")
             return
         for part in truncate_message(shopping_data):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def briefing(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /briefing command - manual morning briefing."""
-        await update.message.reply_text("🌅 Generating your briefing...")
+        await self._reply(update, "🌅 جارٍ إعداد ملخصك...")
         response = await self.agent.generate_briefing()
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def review(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /review command - manual weekly review."""
-        await update.message.reply_text("📊 Generating your weekly review...")
+        await self._reply(update, "📊 جارٍ إعداد المراجعة الأسبوعية...")
         response = await self.agent.generate_weekly_review()
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def note(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /note command."""
         if not context.args:
-            await update.message.reply_text("Usage: /note <title>: <content>")
+            await self._reply(update, f"الاستخدام: {command('note')} <العنوان>: <المحتوى>")
             return
         text = " ".join(context.args)
         if ":" in text:
@@ -299,25 +686,93 @@ class Handlers:
             title = f"Note {ksa_time_str()}"
             content = text
         self.memory.save_note(title.strip(), content.strip())
-        await update.message.reply_text(f"📝 Note saved: {title.strip()}")
+        await self._reply(update, f"📝 تم حفظ الملاحظة: {title.strip()}")
 
     async def week(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /week command."""
         response = await self.agent.chat(
-            "Show me my week overview: all events, tasks with deadlines this week, important dates.",
+            arabic_agent_request("اعرض نظرة عامة على هذا الأسبوع: كل الأحداث، المهام ذات المواعيد، والتواريخ المهمة."),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
 
     async def radar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /radar command."""
-        from moha_mind.mcp_servers.attention.server import AttentionServer
-
-        server = AttentionServer(self.memory)
-        response = await server._get_attention_radar(days_ahead=30, limit=8)
+        response = await self.agent.chat(
+            arabic_agent_request("اعرض رادار الانتباه لما يحتاج متابعة خلال 30 يومًا، ورتّبه حسب الأولوية."),
+            chat_id=str(update.effective_chat.id),
+        )
         for part in truncate_message(response):
-            await update.message.reply_text(part)
+            await self._reply(update, part)
+
+    async def undo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /undo — revert the last memory mutation."""
+        result = self.memory.undo_last()
+        if not result:
+            await self._reply(update, "لا يوجد ما يمكن التراجع عنه في الذاكرة.")
+            return
+        cat = result["category"]
+        action = result["action"]
+        await self._reply(update, f"↩️ تم التراجع عن آخر تعديل ({action}) في {cat}.")
+
+    async def why(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /why <category> <fragment> — show provenance of a memory line."""
+        args = context.args or []
+        if len(args) < 2:
+            await self._reply(update, "استخدم: /why <category> <جزء من النص>")
+            return
+        category = args[0].lower()
+        fragment = " ".join(args[1:])
+        events = self.memory.explain(category, fragment)
+        if not events:
+            await self._reply(update, f"لم أجد سجلًا لهذا السطر في {category}.")
+            return
+        lines = [f"سجل {category}:"]
+        for ev in events[:5]:
+            lines.append(f"- {ev['timestamp']} · {ev['action']} · {ev['source']}")
+        await self._reply(update, "\n".join(lines))
+
+    async def consolidate(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /consolidate — manually run the nightly consolidator."""
+        if not self.consolidator:
+            await self._reply(update, "خدمة التجميع الذاكرة غير مفعّلة. فعّل CONSOLIDATOR_ENABLED في .env.")
+            return
+        await self._reply(update, "🧠 جارٍ مراجعة ذاكرة اليوم...")
+        try:
+            result = await self.consolidator.run()
+        except Exception as exc:
+            log.error(f"Manual consolidation failed: {exc}")
+            await self._reply(update, f"تعذّر التجميع: {exc}")
+            return
+        applied = result.get("applied", 0)
+        queued = result.get("queued", 0)
+        summary = result.get("summary") or "—"
+        await self._reply(update, f"✅ طُبّق {applied}، ينتظر قرارك {queued}\n\n{summary}")
+
+    async def pending(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /pending — list consolidator proposals awaiting approval."""
+        if not self.consolidator:
+            await self._reply(update, "خدمة التجميع غير مفعّلة.")
+            return
+        proposals = self.consolidator.load_pending()
+        if not proposals:
+            await self._reply(update, "لا توجد اقتراحات تنتظر المراجعة.")
+            return
+        for prop in proposals[:5]:
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("✅ احفظ", callback_data=f"mem_accept:{prop.proposal_id}"),
+                        InlineKeyboardButton("❌ تجاهل", callback_data=f"mem_reject:{prop.proposal_id}"),
+                    ]
+                ]
+            )
+            text = f"[{prop.kind} · {prop.category}] {prop.content}"
+            if prop.existing_line:
+                text += f"\n(يستبدل: {prop.existing_line})"
+            if update.message:
+                await update.message.reply_text(text, reply_markup=keyboard)
 
     async def message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle regular text messages - the main conversation handler."""
@@ -333,10 +788,10 @@ class Handlers:
             await update.message.chat.send_action("typing")
             response = await self.agent.chat(user_text, chat_id=chat_id)
             for part in truncate_message(response):
-                await update.message.reply_text(part)
+                await self._reply(update, part)
         except Exception as e:
             log.error(f"Message handler error: {e}")
-            await update.message.reply_text("Sorry, I had an error processing that. Please try again.")
+            await self._reply(update, "حدث خطأ أثناء معالجة رسالتك. حاول مرة أخرى.")
 
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle errors."""

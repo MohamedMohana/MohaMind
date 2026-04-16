@@ -114,6 +114,23 @@ class TestMemoryManager:
         assert "Call Ahmad" in content
         assert "remind_at:2026-04-13 09:00" in content
 
+    def test_add_flexible_reminder_fields(self, memory):
+        memory.write("reminders", "# Reminders\n\n## Scheduled\n")
+        memory.add_reminder(
+            "Take medicine",
+            remind_at="2026-04-13 05:00",
+            repeat="daily",
+            times="05:00,17:00",
+            skip_weekends=True,
+            notes="after food",
+        )
+        content = memory.read("reminders")
+        assert "times:05:00,17:00" in content
+        assert "skip_weekends:true" in content
+        reminders = memory.get_reminder_section()
+        assert reminders[0]["times"] == "05:00,17:00"
+        assert reminders[0]["skip_weekends"] == "true"
+
     def test_get_reminder_section(self, memory):
         memory.write(
             "reminders",

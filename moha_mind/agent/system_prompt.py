@@ -10,28 +10,76 @@ Constructs the system prompt dynamically based on:
 - Connected memory insights
 """
 
-from moha_mind.agent.memory import MemoryManager
+from typing import Optional
+
+from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
+from moha_mind.config import settings
 from moha_mind.utils.timezone import ksa_date_display, ksa_day_name, ksa_time_str
 
 
-def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
-    """Build the full system prompt with live memory context."""
+def _render_summaries(
+    summaries: Optional[dict[str, str]],
+    focus: set[str],
+    router_enabled: bool,
+) -> str:
+    """Render one-line summaries for categories the router did not expand."""
+    if not router_enabled or not summaries:
+        return ""
+    lines = []
+    for cat in MEMORY_FILES:
+        if cat in focus or cat == "profile":
+            continue
+        text = (summaries.get(cat) or "").strip()
+        if not text:
+            continue
+        lines.append(f"- {cat}: {text}")
+    if not lines:
+        return ""
+    header = "### MEMORY SUMMARIES (ask for full content when needed)"
+    return header + "\n" + "\n".join(lines) + "\n"
+
+
+def build_system_prompt(
+    memory: MemoryManager,
+    extra_context: str = "",
+    *,
+    focus_categories: Optional[list[str]] = None,
+    summaries: Optional[dict[str, str]] = None,
+) -> str:
+    """Build the full system prompt with live memory context.
+
+    When ``focus_categories`` and ``summaries`` are provided (see
+    ``MemoryRouter`` + ``MemorySummarizer``), the prompt expands only those
+    categories in full and injects one-paragraph summaries for the rest.
+    This keeps token usage flat as the user's memory grows.
+
+    If both are omitted, we fall back to the legacy behavior of pasting
+    the common categories in full.
+    """
 
     date_str = ksa_date_display()
     time_str = ksa_time_str()
     day_name = ksa_day_name()
 
-    profile = memory.read("profile")
-    family = memory.read("family")
-    tasks = memory.read("tasks")
-    reminders = memory.read("reminders")
-    occasions = memory.read("occasions")
-    vehicle = memory.read("vehicle")
-    finances = memory.read("finances")
-    health = memory.read("health")
-    documents = memory.read("documents")
-    relationships = memory.read("relationships")
-    shopping = memory.read("shopping")
+    router_enabled = bool(getattr(settings, "memory_router_enabled", True)) and focus_categories is not None
+    focus = set(focus_categories or [])
+
+    def _read_if_focus(cat: str) -> str:
+        if router_enabled and cat not in focus:
+            return ""
+        return memory.read(cat)
+
+    profile = memory.read("profile")  # always in full
+    family = _read_if_focus("family")
+    tasks = _read_if_focus("tasks")
+    reminders = _read_if_focus("reminders")
+    occasions = _read_if_focus("occasions")
+    vehicle = _read_if_focus("vehicle")
+    finances = _read_if_focus("finances")
+    health = _read_if_focus("health")
+    documents = _read_if_focus("documents")
+    relationships = _read_if_focus("relationships")
+    shopping = _read_if_focus("shopping")
 
     expiring = memory.get_expiring_items(days_ahead=14)
     expiring_text = ""
@@ -52,14 +100,18 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
 
     prompt = (
         f"You are MohaMind, a personal AI agent and trusted companion for your user. "
-        f"You know everything about their life and proactively help them manage it.\n\n"
+        f"You keep track of important life context and proactively help them manage it.\n\n"
         f"## YOUR PERSONALITY\n"
         f"- You speak like a close, wise friend - warm but direct\n"
         f"- You're proactive: you anticipate needs before being asked\n"
-        f"- You remember EVERYTHING the user tells you and connect it across all aspects of their life\n"
+        f"- You remember important details the user shares and connect them across relevant life areas\n"
         f"- You're culturally aware and respect Saudi/KSA context\n"
         f"- You use emojis sparingly but effectively for visual clarity\n"
         f"- You respond in the same language the user writes in (English or Arabic)\n"
+        f"- If a Telegram command or scheduler prompt asks for Arabic, use polished Arabic even if the prompt contains "
+        f"English tool names\n"
+        f"- ALWAYS show clock times to the user in 12-hour format. In English use AM/PM (e.g. 5:30 PM, 9:00 AM). "
+        f"In Arabic use ص/م clearly (e.g. 1:30 م أو 5:00 ص). Never show 24-hour times like '17:30' to the user.\n"
         f"- You fully support normal spoken Arabic, Saudi/Gulf dialect, and casual phrasing; "
         f"do not force Modern Standard Arabic\n"
         f"- You're concise but never cold\n\n"
@@ -76,7 +128,8 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"- add_task: Add a new task\n"
         f"- complete_task: Mark a task as done\n"
         f"- list_tasks: Show active tasks\n"
-        f"- add_reminder: Schedule a timed reminder\n"
+        f"- add_reminder: Schedule one-time, recurring, multi-time, weekday, weekend-skipping, "
+        f"and countdown reminders\n"
         f"- list_reminders: Show scheduled reminders\n"
         f"- complete_reminder: Mark a reminder as done\n"
         f"- get_expiring: Get items expiring soon\n"
@@ -110,6 +163,7 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"{f'### DOCUMENTS\\n{documents}\\n' if documents.strip() else ''}"
         f"{f'### RELATIONSHIPS\\n{relationships}\\n' if relationships.strip() else ''}"
         f"{f'### SHOPPING\\n{shopping}\\n' if shopping.strip() else ''}"
+        f"{_render_summaries(summaries, focus, router_enabled)}"
         f"{expiring_text}\n"
         f"{urgent_text}\n"
         f"{f'### ADDITIONAL CONTEXT\\n{extra_context}' if extra_context else ''}\n\n"
@@ -130,6 +184,11 @@ def build_system_prompt(memory: MemoryManager, extra_context: str = "") -> str:
         f"search past sessions before asking them to repeat themselves\n"
         f"14. Understand colloquial Arabic such as 'بكره', 'بعد بكره', 'الساعه ٧', "
         f"'٤ العصر', '٥ الصبح', 'المستشفى', and 'يوم نعم ويوم لا' naturally without asking the user to rephrase\n"
+        f"15. For flexible reminders: use repeat='daily' with times=['05:00','17:00'] for multiple daily times; "
+        f"use repeat='weekly' with weekdays=['wed'] for weekly medication; use skip_weekends=true when the user "
+        f"wants weekends skipped; use repeat='every_n_days' with interval_days for custom intervals; "
+        f"use repeat='annual_countdown' with lead_days=7 for anniversaries that should remind daily from one week "
+        f"before until the day before\n"
     )
 
     return prompt

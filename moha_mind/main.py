@@ -71,15 +71,15 @@ def _first_run_auth():
         )
     )
 
-    providers = {"1": ("z.ai (GLM-4)", "zai"), "2": ("OpenAI", "openai")}
+    providers = {"1": ("z.ai (GLM)", "zai"), "2": ("OpenAI", "openai")}
     console.print("\n  [bold]Choose your AI provider:[/]")
-    console.print("  [cyan]1[/] z.ai (GLM-4) - recommended, cost-effective")
+    console.print("  [cyan]1[/] z.ai (GLM) - recommended, cost-effective")
     console.print("  [cyan]2[/] OpenAI (GPT-4)")
     choice = Prompt.ask("  Choice", choices=["1", "2"], default="1", console=console)
 
     provider = providers[choice][1]
     key_name = "z.ai" if provider == "zai" else "OpenAI"
-    key_url = "https://open.bigmodel.cn" if provider == "zai" else "https://platform.openai.com/api-keys"
+    key_url = "https://z.ai" if provider == "zai" else "https://platform.openai.com/api-keys"
     env_key = "ZAI_API_KEY" if provider == "zai" else "OPENAI_API_KEY"
 
     console.print(f"\n  Get your key from [bold cyan]{key_url}[/]")
@@ -97,12 +97,25 @@ def _first_run_auth():
         f"FALLBACK_LLM={'openai' if provider == 'zai' else 'zai'}",
         f"TIMEZONE={tz}",
         "MORNING_BRIEFING_TIME=08:00",
+        # Memory defaults — router+summaries on, advanced features off until opted in.
+        "MEMORY_ROUTER_ENABLED=true",
+        "MEMORY_SUMMARIES_ENABLED=true",
+        "EMBEDDING_BACKEND=none",
+        "CONSOLIDATOR_ENABLED=false",
+        "CONSOLIDATOR_MODE=hybrid",
+        "CONSOLIDATOR_TIME=02:30",
+        "SENSITIVE_CATEGORIES=finances,health,documents",
     ]
     Path(".env").write_text("\n".join(lines) + "\n")
 
     console.print(Panel("[bold green]Saved![/] You're ready to go.\n", border_style="green", padding=(0, 2)))
 
-    tg = Confirm.ask("\n  Configure Telegram bot? (optional)", default=False, console=console)
+    console.print(
+        "  [dim]Tip: run [/][bold cyan]mohamind setup[/] [dim]anytime to enable semantic search,\n"
+        "  the nightly memory consolidator, and Telegram.[/]\n"
+    )
+
+    tg = Confirm.ask("  Configure Telegram bot now? (optional)", default=False, console=console)
     if tg:
         from moha_mind.cli.setup_wizard import SetupWizard
 
@@ -198,6 +211,7 @@ async def bootstrap(require_telegram: bool = False):
         bot = MohaMindBot(agent, memory)
         bot.setup()
         scheduler = SchedulerJobs(agent, memory, bot)
+        bot.handlers.attach_consolidator(scheduler.memory_consolidator)
 
     return memory, agent, bot, scheduler
 

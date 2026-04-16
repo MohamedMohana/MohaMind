@@ -1,5 +1,6 @@
 """Comprehensive tests for agent core with mocked LLM."""
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -174,6 +175,11 @@ class TestAgentCoreConversation:
         assert "Structured Memory" in result
         assert "Past Conversations" in result
 
+    def test_recall_arabic_labels(self, agent):
+        agent.memory.write("profile", "Passport number: A123")
+        result = agent.recall("passport", chat_id="telegram", language="ar")
+        assert "الذاكرة المنظمة" in result
+
     def test_persisted_sessions_load_in_new_agent_instance(self, tmp_memory):
         with patch("moha_mind.agent.core.settings") as mock_settings:
             mock_settings.active_llm_config = {
@@ -211,3 +217,58 @@ class TestAgentCoreConversation:
             assert result is True
             assert agent.model == "fallback-model"
             assert agent.provider == "fallback"
+
+    def test_switch_to_fallback_skips_same_model(self, agent):
+        agent.model = "same-model"
+        agent.provider = "same-provider"
+        with patch("moha_mind.agent.core.settings") as mock_settings:
+            mock_settings.fallback_llm_config = {
+                "api_key": "fallback-key",
+                "model": "same-model",
+                "base_url": None,
+                "provider": "same-provider",
+            }
+            result = agent._switch_to_fallback()
+            assert result is False
+
+
+class _FakeCompletions:
+    def __init__(self, content: str | None = None, error: Exception | None = None):
+        self.content = content
+        self.error = error
+
+    async def create(self, **kwargs):
+        if self.error:
+            raise self.error
+        message = SimpleNamespace(content=self.content, tool_calls=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+class _FakeClient:
+    def __init__(self, completions: _FakeCompletions):
+        self.chat = SimpleNamespace(completions=completions)
+
+
+class TestAgentCoreFallbackGeneration:
+    @pytest.mark.asyncio
+    async def test_briefing_uses_fallback_on_primary_error(self, agent):
+        agent.provider = "zai"
+        agent.model = "bad-model"
+        agent.client = _FakeClient(_FakeCompletions(error=RuntimeError("model does not exist")))
+        fallback_client = _FakeClient(_FakeCompletions(content="ملخص جاهز"))
+
+        with (
+            patch("moha_mind.agent.core.settings") as mock_settings,
+            patch("moha_mind.agent.core.AsyncOpenAI", return_value=fallback_client),
+        ):
+            mock_settings.fallback_llm_config = {
+                "api_key": "fallback-key",
+                "model": "fallback-model",
+                "base_url": None,
+                "provider": "openai",
+            }
+            result = await agent.generate_briefing()
+
+        assert result == "ملخص جاهز"
+        assert agent.provider == "openai"
+        assert agent.model == "fallback-model"

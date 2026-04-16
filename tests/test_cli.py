@@ -140,7 +140,7 @@ class TestCommands:
         memory = MemoryManager(memory_dir=str(tmp_path))
         agent = Mock()
         agent.provider = "zai"
-        agent.model = "glm-4-plus"
+        agent.model = "glm-5-turbo"
         agent.conversations = {}
         agent.session_store = Mock()
         agent.session_store.count_messages.return_value = 0
@@ -159,7 +159,7 @@ class TestCommands:
         memory = MemoryManager(memory_dir=str(tmp_path))
         agent = Mock()
         agent.provider = "zai"
-        agent.model = "glm-4-plus"
+        agent.model = "glm-5-turbo"
         agent.conversations = {}
         agent.session_store = Mock()
         agent.session_store.count_messages.return_value = 0
@@ -289,7 +289,7 @@ class TestBanner:
 
         banner = build_banner(
             version="0.1.0",
-            model="glm-4-plus",
+            model="glm-5-turbo",
             provider="z.ai",
             timezone="Asia/Riyadh",
             tasks_count=5,
@@ -305,16 +305,16 @@ class TestBanner:
         banner = build_banner(mood="high")
         assert banner is not None
 
-    def test_render_brain(self):
-        from moha_mind.cli.banner import _render_brain
+    def test_ascii_title(self):
+        from moha_mind.cli.banner import _ascii_title
 
-        result = _render_brain("neutral")
+        result = _ascii_title("neutral")
         assert isinstance(result, Text)
 
-    def test_render_brain_high_mood(self):
-        from moha_mind.cli.banner import _render_brain
+    def test_ascii_title_high_mood(self):
+        from moha_mind.cli.banner import _ascii_title
 
-        result = _render_brain("high")
+        result = _ascii_title("high")
         assert isinstance(result, Text)
 
 

@@ -5,7 +5,7 @@ from datetime import timedelta
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.config import settings
 from moha_mind.utils.logging_config import log
-from moha_mind.utils.timezone import now_ksa
+from moha_mind.utils.timezone import format_datetime_en, now_ksa
 
 
 class MicrosoftGraphServer:
@@ -24,11 +24,11 @@ class MicrosoftGraphServer:
             client_id = settings.ms_client_id
             client_secret = settings.ms_client_secret
 
-            if not client_id or not client_secret:
+            if not client_id:
                 log.warning("Microsoft Graph credentials not configured. MS integration disabled.")
                 return None
 
-            if client_secret and tenant_id != "common":
+            if client_secret:
                 credential = ClientSecretCredential(
                     tenant_id=tenant_id,
                     client_id=client_id,
@@ -79,7 +79,7 @@ class MicrosoftGraphServer:
             for msg in messages.value:
                 sender = msg.sender.email_address.name if msg.sender else "Unknown"
                 subject = msg.subject or "No subject"
-                received = msg.received_date_time.strftime("%Y-%m-%d %H:%M") if msg.received_date_time else ""
+                received = format_datetime_en(msg.received_date_time) if msg.received_date_time else ""
                 lines.append(f"- [{received}] From: {sender} - {subject}")
 
             return "\n".join(lines)
@@ -113,11 +113,15 @@ class MicrosoftGraphServer:
 
             lines = []
             for event in events.value:
-                start = event.start.date_time if event.start else "Unknown time"
+                start_raw = event.start.date_time if event.start else ""
                 subject = event.subject or "No title"
                 location = event.location.display_name if event.location else ""
                 loc_str = f" @ {location}" if location else ""
-                lines.append(f"- {start[:16]} {subject}{loc_str}")
+                if start_raw:
+                    start_display = format_datetime_en(start_raw[:16].replace("T", " "))
+                else:
+                    start_display = "Unknown time"
+                lines.append(f"- {start_display} {subject}{loc_str}")
 
             return "\n".join(lines)
         except Exception as e:

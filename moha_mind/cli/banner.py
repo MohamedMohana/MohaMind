@@ -1,35 +1,76 @@
-"""ASCII art banner with a MohaMind command-deck layout."""
+"""MohaMind CLI banner — block-art header with brain visual and green gradient."""
 
-from rich.columns import Columns
 from rich.console import Group
-from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
-from moha_mind.cli.themes import BRAIN_COLORS, get_theme
+# ── Green gradient (left → right across ASCII art) ───────────────────────────
+_GRADIENT = ["#00FF87", "#00E676", "#00C853", "#00BFA5", "#1DE9B6", "#00E5FF"]
 
-NEURAL_NODES = [
-    "   ◉════◉════◉   ",
-    "  ╱ ╲  ╱ ╲  ╱ ╲  ",
-    " ◉═══◉═══◉═══◉ ",
-    "  ╲ ╱  ╲ ╱  ╲ ╱  ",
-    "   ◉════◉════◉   ",
+# ── Brain art — two hemispheres with folds, block-art style ─────────────────
+#    Designed to sit to the right of the title — 6 lines to match.
+_BRAIN = [
+    r"      ▄▄███▄  ▄███▄▄",
+    r"    ▄██╭╮╭╮██  ██╭╮╭╮██▄",
+    r"   ██▌╰╯╭╯██▌▐██╰╮╰╯▐██",
+    r"   ██▌╭╮╰╮██▌▐██╭╯╭╮▐██",
+    r"    ▀██╰╯╰╯██▌▐██╰╯╰╯██▀",
+    r"      ▀▀██▄▄▐▌▄▄██▀▀",
 ]
 
 
-def _render_brain(mood: str = "neutral") -> Text:
-    colors = BRAIN_COLORS.get(mood, BRAIN_COLORS["neutral"])
-    lines = []
-    for i, line in enumerate(NEURAL_NODES):
-        color = colors[i % len(colors)]
-        lines.append(Text(line, style=f"bold {color}"))
-    return Text("\n").join(lines)
+def _ascii_title(mood: str = "neutral") -> Text:
+    """Render 'MohaMind' block-art + brain side-by-side with green gradient."""
+    try:
+        import pyfiglet  # type: ignore[import-untyped]
+
+        art = pyfiglet.figlet_format("MohaMind", font="ansi_shadow", width=120)
+    except Exception:
+        return Text("  MohaMind\n", style="bold #00FF87")
+
+    title_lines = art.split("\n")
+    while title_lines and not title_lines[-1].strip():
+        title_lines.pop()
+    if not title_lines:
+        return Text("  MohaMind\n", style="bold #00FF87")
+
+    # Pad brain and title to same height
+    brain = list(_BRAIN)
+    while len(brain) < len(title_lines):
+        brain.append(" " * len(_BRAIN[0]))
+    while len(title_lines) < len(brain):
+        title_lines.append("")
+
+    title_w = max(len(ln) for ln in title_lines) or 1
+    gap = "  "
+    colors = _GRADIENT
+
+    # Brain gradient: darker green → bright green → cyan (top to bottom)
+    brain_colors = ["#00C853", "#00E676", "#00FF87", "#00FF87", "#00E676", "#00C853"]
+
+    result = Text()
+    for i, (tl, bl) in enumerate(zip(title_lines, brain)):
+        # Title chars with left-to-right gradient
+        padded_t = tl.ljust(title_w)
+        for j, ch in enumerate(padded_t):
+            idx = min(int(j / title_w * len(colors)), len(colors) - 1)
+            result.append(ch, style=f"bold {colors[idx]}")
+
+        # Gap
+        result.append(gap)
+
+        # Brain chars with per-row color
+        bc = brain_colors[i % len(brain_colors)]
+        result.append(bl, style=f"bold {bc}")
+
+        result.append("\n")
+
+    return result
 
 
 def build_banner(
     version: str = "0.1.0",
-    model: str = "glm-4-plus",
-    provider: str = "z.ai",
+    model: str = "glm-5-turbo",
+    provider: str = "zai",
     timezone: str = "Asia/Riyadh",
     tasks_count: int = 0,
     expiring_count: int = 0,
@@ -39,68 +80,67 @@ def build_banner(
     google_enabled: bool = False,
     microsoft_enabled: bool = False,
 ) -> Group:
-    theme = get_theme(mood)
+    g = "#00FF87"
+    d = "#555555"
 
-    title = Text()
-    title.append("M", style="bold red")
-    title.append("o", style="bold yellow")
-    title.append("h", style="bold green")
-    title.append("a", style="bold cyan")
-    title.append("M", style="bold blue")
-    title.append("i", style="bold magenta")
-    title.append("n", style="bold red")
-    title.append("d", style="bold yellow")
+    # ── Title + Brain ────────────────────────────────────────────────
+    title = _ascii_title(mood)
 
-    subtitle = Text("Majlis Command Deck", style=f"italic {theme['dim']}")
+    # ── Slogan ───────────────────────────────────────────────────────
+    slogan = Text(
+        "  Your Personal Agent  ·  Always On  ·  Always Remembering\n",
+        style=f"italic {d}",
+    )
 
-    stats_table = Table(show_header=False, box=None, padding=(0, 2))
-    stats_table.add_column(style=theme["accent"], width=14)
-    stats_table.add_column(style=theme["primary"])
-    stats_table.add_row("Model:", f"{model}")
-    stats_table.add_row("Provider:", f"{provider}")
-    stats_table.add_row("Timezone:", f"{timezone}")
-    stats_table.add_row("Tasks:", f"{tasks_count} active")
-    stats_table.add_row("Expiring:", f"{expiring_count} items" if expiring_count else "All clear")
-    integrations = []
+    # ── Status line ──────────────────────────────────────────────────
+    status = Text("  ")
+    status.append(provider, style=f"bold {g}")
+    status.append(f"/{model}", style="bold white")
+
+    status.append("   ", style=d)
+    if tasks_count:
+        status.append(f"{tasks_count} tasks", style="bold white")
+    else:
+        status.append("no tasks", style=d)
+
+    status.append("   ", style=d)
+    if expiring_count:
+        status.append(f"{expiring_count} expiring", style="bold #FF5252")
+    else:
+        status.append("nothing expiring", style=d)
+
+    links = []
     if telegram_enabled:
-        integrations.append("Telegram")
+        links.append("telegram")
     if google_enabled:
-        integrations.append("GCal")
+        links.append("gcal")
     if microsoft_enabled:
-        integrations.append("Outlook")
-    stats_table.add_row("Links:", " • ".join(integrations) if integrations else "Local only")
+        links.append("outlook")
+    if links:
+        status.append("   ", style=d)
+        status.append(" ".join(links), style=d)
+
     if uptime_hint:
-        stats_table.add_row("Time:", uptime_hint)
+        status.append("   ", style=d)
+        status.append(uptime_hint, style=d)
 
-    brain = _render_brain(mood)
-    pulse = Text("Attention • Calendar • Family • Social", style=f"bold {theme['secondary']}")
+    status.append("\n")
 
-    left_panel = Panel(
-        Group(title, subtitle, Text(), pulse, Text(), brain),
-        border_style=theme["panel_border"],
-        padding=(1, 2),
-        title="[bold]✦ MohaMind[/]",
-        title_align="center",
+    # ── Hint ─────────────────────────────────────────────────────────
+    hint = Text("  ")
+    cmds = ["/help", "/majlis", "/radar", "/briefing"]
+    for i, cmd in enumerate(cmds):
+        if i:
+            hint.append("  ", style=d)
+        hint.append(cmd, style=f"bold {g}")
+    hint.append("  or just start talking\n", style=d)
+
+    # ── Assemble ─────────────────────────────────────────────────────
+    return Group(
+        Text(),
+        title,
+        slogan,
+        status,
+        Text(),
+        hint,
     )
-
-    right_panel = Panel(
-        stats_table,
-        border_style=theme["panel_border"],
-        padding=(1, 2),
-        title="[bold]⌘ Live Systems[/]",
-        title_align="center",
-    )
-
-    columns = Columns([left_panel, right_panel], equal=True, expand=True)
-
-    bottom_bar = Text()
-    bottom_bar.append("─" * 60, style=theme["dim"])
-    bottom_bar.append("\n  Jump in with ")
-    bottom_bar.append("/majlis", style=f"bold {theme['accent']}")
-    bottom_bar.append(", ")
-    bottom_bar.append("/calendar", style=f"bold {theme['accent']}")
-    bottom_bar.append(", ")
-    bottom_bar.append("/radar", style=f"bold {theme['accent']}")
-    bottom_bar.append(" or just start talking.\n")
-
-    return Group(columns, bottom_bar)

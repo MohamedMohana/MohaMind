@@ -315,6 +315,11 @@ class MohaMindCLI:
         table.add_column(style=theme["primary"])
         table.add_row("LLM Provider:", self.agent.provider)
         table.add_row("Model:", self.agent.model)
+        strategy = getattr(self.agent, "strategy", "fallback")
+        table.add_row("Strategy:", strategy)
+        verifier = getattr(self.agent, "verifier", None)
+        if verifier is not None:
+            table.add_row("Verifier:", f"{verifier.provider} ({verifier.model})")
         table.add_row("Active Tasks:", str(len(active)))
         table.add_row("Expiring Items:", str(len(expiring)))
         table.add_row("Messages Tracked:", str(conversations))
@@ -485,6 +490,11 @@ class MohaMindCLI:
 
         table.add_row("LLM Provider:", self.agent.provider)
         table.add_row("Model:", self.agent.model)
+        strategy = getattr(self.agent, "strategy", settings.effective_strategy)
+        table.add_row("Strategy:", strategy)
+        verifier = getattr(self.agent, "verifier", None)
+        if verifier is not None:
+            table.add_row("Verifier:", f"{verifier.provider} ({verifier.model})")
         table.add_row("Timezone:", settings.timezone)
         table.add_row("Briefing Time:", settings.morning_briefing_time)
         table.add_row("Weekly Review:", f"{settings.weekly_review_day} at {settings.weekly_review_time}")
@@ -616,53 +626,139 @@ class MohaMindCLI:
     async def _cmd_provider(self, args: str = "") -> str | None:
         from rich.prompt import Prompt
 
+        from moha_mind.cli.setup_wizard import OPENAI_MODELS, ZAI_MODELS
+
+        known_models = {"zai": ZAI_MODELS, "openai": OPENAI_MODELS}
+
         if args.strip() in ("zai", "openai"):
             provider = args.strip()
         else:
-            self.console.print("\n  [bold]Switch LLM provider:[/]")
-            self.console.print("  [cyan]zai[/]     z.ai (Zhipu GLM-4)")
-            self.console.print("  [cyan]openai[/]  OpenAI (GPT)")
+            self.console.print(f"\n  [bold]Switch LLM provider[/]  (current: [cyan]{self.agent.provider}[/])")
+            self.console.print("  [bold cyan]zai[/]     — z.ai / Zhipu GLM  (cost-effective, fast)")
+            self.console.print("  [bold cyan]openai[/]  — OpenAI GPT  (gpt-4o, gpt-4o-mini, …)")
             provider = Prompt.ask(
                 "  Provider", choices=["zai", "openai"], default=self.agent.provider, console=self.console
             )
 
+        # --- Pick model for the new provider ---
+        from moha_mind.config import settings as s
+
         if provider == "zai":
-            from moha_mind.config import settings as s
-
-            self.agent.client.base_url = s.zai_base_url
-            self.agent.model = s.zai_model
-            self.agent.provider = "zai"
+            current_model = s.zai_model
+            base_url = s.zai_base_url
+            api_key = s.zai_api_key
         else:
-            self.agent.client.base_url = None
-            from moha_mind.config import settings as s
+            current_model = s.openai_model
+            base_url = None
+            api_key = s.openai_api_key
 
-            self.agent.model = s.openai_model
-            self.agent.provider = "openai"
+        model_choices = known_models[provider]
+        self.console.print(f"\n  [bold]Model[/]  (current: [cyan]{current_model}[/])")
+        for m in model_choices:
+            marker = " ←" if m == current_model else ""
+            self.console.print(f"    [dim]{m}[/dim]{marker}")
+        chosen_model = Prompt.ask(
+            "  Model",
+            choices=model_choices,
+            default=current_model if current_model in model_choices else model_choices[0],
+            console=self.console,
+        )
+        if chosen_model == "custom":
+            chosen_model = Prompt.ask("  Custom model name", console=self.console)
 
+        # Apply to running agent
+        self.agent.client.base_url = base_url  # type: ignore[assignment]
+        self.agent.client.api_key = api_key
+        self.agent.model = chosen_model
+        self.agent.provider = provider
+
+        # Persist to .env
         env_path = Path(".env")
+        model_key = "ZAI_MODEL" if provider == "zai" else "OPENAI_MODEL"
         if env_path.exists():
             file_lines = env_path.read_text().splitlines()
-            updated = []
+            updated: list[str] = []
+            touched = {"PRIMARY_LLM": False, model_key: False}
             for line in file_lines:
                 if line.startswith("PRIMARY_LLM="):
                     updated.append(f"PRIMARY_LLM={provider}")
+                    touched["PRIMARY_LLM"] = True
+                elif line.startswith(f"{model_key}="):
+                    updated.append(f"{model_key}={chosen_model}")
+                    touched[model_key] = True
                 else:
                     updated.append(line)
+            for k, was_written in touched.items():
+                if not was_written:
+                    val = provider if k == "PRIMARY_LLM" else chosen_model
+                    updated.append(f"{k}={val}")
             env_path.write_text("\n".join(updated) + "\n")
 
-        self.console.print(display_success(f"Switched to {provider} ({self.agent.model})"))
+        self.console.print(display_success(f"Switched to [bold]{provider}[/]  model: [bold]{chosen_model}[/]"))
         return None
 
     async def _cmd_model(self, args: str = "") -> str | None:
+        from rich.prompt import Prompt
+        from rich.table import Table
+
+        from moha_mind.cli.setup_wizard import OPENAI_MODELS, ZAI_MODELS
+
+        provider = self.agent.provider
+        known = ZAI_MODELS if provider == "zai" else OPENAI_MODELS
+        current = self.agent.model
+
         if not args.strip():
-            self.console.print(display_error("Usage: /model <model-name>"))
-            self.console.print(f"  Current: [bold]{self.agent.model}[/]")
+            # Show known models for this provider
+            theme = get_theme(self._current_mood())
+            table = Table(show_header=False, box=None, padding=(0, 2))
+            table.add_column(style=theme["accent"], width=26)
+            table.add_column(style="dim")
+            for m in known:
+                if m == "custom":
+                    continue
+                marker = " ← active" if m == current else ""
+                table.add_row(m, marker)
+            self.console.print(
+                Panel(
+                    table,
+                    title=f"🤖 Available {provider} models",
+                    title_align="left",
+                    border_style=theme["panel_border"],
+                    padding=(1, 2),
+                )
+            )
+            new_model = Prompt.ask(
+                "  Switch to model (or Enter to keep current)",
+                default=current,
+                console=self.console,
+            )
+        else:
+            new_model = args.strip()
+
+        if not new_model or new_model == current:
             return None
 
-        new_model = args.strip()
-        old_model = self.agent.model
+        old_model = current
         self.agent.model = new_model
-        self.console.print(display_success(f"Model changed: {old_model} → {new_model}"))
+
+        # Persist to .env
+        env_path = Path(".env")
+        model_key = "ZAI_MODEL" if provider == "zai" else "OPENAI_MODEL"
+        if env_path.exists():
+            file_lines = env_path.read_text().splitlines()
+            updated: list[str] = []
+            written = False
+            for line in file_lines:
+                if line.startswith(f"{model_key}="):
+                    updated.append(f"{model_key}={new_model}")
+                    written = True
+                else:
+                    updated.append(line)
+            if not written:
+                updated.append(f"{model_key}={new_model}")
+            env_path.write_text("\n".join(updated) + "\n")
+
+        self.console.print(display_success(f"Model: [bold]{old_model}[/] → [bold]{new_model}[/]"))
         return None
 
     async def _cmd_key(self, args: str = "") -> str | None:
@@ -671,7 +767,7 @@ class MohaMindCLI:
         provider = self.agent.provider
         key_name = "z.ai" if provider == "zai" else "OpenAI"
         env_key = "ZAI_API_KEY" if provider == "zai" else "OPENAI_API_KEY"
-        url = "https://open.bigmodel.cn" if provider == "zai" else "https://platform.openai.com/api-keys"
+        url = "https://z.ai" if provider == "zai" else "https://platform.openai.com/api-keys"
 
         self.console.print(f"\n  Update {key_name} API key")
         self.console.print(f"  Get from [bold cyan]{url}[/]")

@@ -1,20 +1,35 @@
-# MohaMind
+```
+███╗   ███╗ ██████╗ ██╗  ██╗ █████╗ ███╗   ███╗██╗███╗   ██╗██████╗         ▄▄███▄  ▄███▄▄
+████╗ ████║██╔═══██╗██║  ██║██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗      ▄██╭╮╭╮██  ██╭╮╭╮██▄
+██╔████╔██║██║   ██║███████║███████║██╔████╔██║██║██╔██╗ ██║██║  ██║     ██▌╰╯╭╯██▌▐██╰╮╰╯▐██
+██║╚██╔╝██║██║   ██║██╔══██║██╔══██║██║╚██╔╝██║██║██║╚██╗██║██║  ██║     ██▌╭╮╰╮██▌▐██╭╯╭╮▐██
+██║ ╚═╝ ██║╚██████╔╝██║  ██║██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██████╔╝      ▀██╰╯╰╯██▌▐██╰╯╰╯██▀
+╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═════╝         ▀▀██▄▄▐▌▄▄██▀▀
 
-MohaMind is a CLI-first personal AI agent for real life operations: reminders, tasks, family events, appointments, bills, subscriptions, documents, health, vehicle upkeep, and follow-up.
-
-It is built for people who want:
-
-- a terminal-first workflow
-- readable memory files instead of opaque databases
-- reliable reminders in KSA time
-- Arabic and English conversation
-- support for normal spoken Arabic and Gulf/Saudi dialect
-- Telegram access in addition to the local CLI
-
-MohaMind uses z.ai (GLM) by default and can fall back to OpenAI.
+Your Personal Agent · Always On · Always Remembering
+```
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
+
+MohaMind is a CLI-first personal AI agent built for real life operations — reminders, tasks, family events, bills, documents, health, vehicle, and follow-up. Speaks Arabic and English. Lives in the terminal. Reaches you on Telegram.
+
+**Built for people who want:**
+
+- A terminal-first workflow with slash commands and autocomplete
+- Readable Markdown memory files — not opaque databases
+- Reliable reminders scheduled in KSA time (Asia/Riyadh)
+- Arabic and English conversation, including Gulf/Saudi dialect
+- Telegram access alongside the local CLI
+- Proactive daily briefings, weekly reviews, and expiry alerts
+
+MohaMind uses z.ai (GLM) by default and can use OpenAI as:
+
+- a silent **fallback** (only called when z.ai fails),
+- a **verifier** that double-checks every z.ai answer, or
+- nothing at all (**solo** mode).
+
+You pick the mode during `mohamind setup` and can change it later.
 
 ## Contents
 
@@ -31,9 +46,12 @@ MohaMind uses z.ai (GLM) by default and can fall back to OpenAI.
 - [Telegram Usage](#telegram-usage)
 - [Scheduler And Proactive Behavior](#scheduler-and-proactive-behavior)
 - [Memory Model](#memory-model)
+- [Advanced Memory Features](#advanced-memory-features)
+- [Memory Architecture](#memory-architecture)
 - [Integrations](#integrations)
 - [Minimal Configuration](#minimal-configuration)
-- [Architecture](#architecture)
+- [System Architecture](#system-architecture)
+- [Repository Layout](#repository-layout)
 - [Troubleshooting](#troubleshooting)
 - [Quality](#quality)
 - [Development](#development)
@@ -75,7 +93,7 @@ In practice, that means you can talk to it normally, let it store what matters, 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - one API key:
-  - [z.ai](https://open.bigmodel.cn)
+  - [z.ai](https://z.ai)
   - [OpenAI](https://platform.openai.com/)
 
 You do not need Telegram, Google Calendar, or Outlook to get started.
@@ -96,12 +114,19 @@ uv run mohamind setup
 
 The setup wizard writes `.env` and asks for:
 
-- your LLM provider
-- your API key
-- your timezone
+- your LLM provider + API key
+- verifier / fallback / solo strategy
+- your timezone and morning briefing time
 - optional Telegram settings
+- optional Google Calendar / Microsoft Graph credentials
+- **memory options** — router, rolling summaries, semantic search backend,
+  the nightly consolidator (and its mode + time), and which categories are
+  sensitive
 
-If you skip setup and run `uv run mohamind` without an API key, MohaMind starts a first-run onboarding flow and writes `.env` for you.
+There is no need to hand-edit `.env` or `echo ... >> .env` to turn these on —
+re-run `uv run mohamind setup` any time to change them.
+
+If you skip setup and run `uv run mohamind` without an API key, MohaMind starts a first-run onboarding flow and writes `.env` with sensible defaults (router + summaries on, semantic search and consolidator off until you opt in).
 
 ### Run
 
@@ -351,6 +376,13 @@ MohaMind is designed to behave predictably, but reliable automation still depend
 | `/provider <name>` | Switch LLM provider |
 | `/model <name>` | Change model name |
 | `/key` | Update the current provider API key |
+| `/undo` | Revert the last memory mutation |
+| `/why <cat> <text>` | Show provenance for a memory line |
+| `/consolidate` | Run the memory consolidator now |
+| `/pending` | List consolidator proposals awaiting approval |
+| `/memory_doctor` | Report memory size, summaries, semantic index status |
+| `/reindex` | Rebuild the semantic memory index |
+| `/refresh_summaries` | Regenerate rolling category summaries |
 | `/quit` | Exit the CLI |
 
 ## Telegram Usage
@@ -375,6 +407,25 @@ uv run mohamind --all
 ```
 
 Telegram supports commands and free-form chat. You do not need to talk like a command interface all the time.
+
+### Telegram commands
+
+| Command | What it does |
+| --- | --- |
+| `/help` | Full command list in Arabic |
+| `/status` | Current LLM, strategy, task/expiry count |
+| `/today`, `/tomorrow`, `/week` | Schedule overviews |
+| `/tasks`, `/add <text>`, `/done [n]`, `/untask <n>` | Task management |
+| `/remind <text>`, `/reminders [days]` | Timed reminders |
+| `/memory` | List memory categories with line counts |
+| `/show <category>` | Dump one memory file |
+| `/remember <text>`, `/recall <query>` | Save / search memory |
+| `/forget <query>` or `/forget <category> <query>` | Delete matching lines (inline confirm) |
+| `/notes`, `/note <title>: <content>`, `/read_note <title>`, `/delete_note <title>` | Notes |
+| `/calendar`, `/briefing`, `/review`, `/radar` | Views generated by the agent |
+| `/health`, `/family`, `/social`, `/car`, `/pay`, `/expiry [days]`, `/shopping` | Domain summaries |
+
+Destructive commands (`/forget`, `/untask`, `/delete_note`) always ask for inline-keyboard confirmation before anything is removed from disk. Set `TELEGRAM_ALLOW_DESTRUCTIVE=false` in `.env` to disable them entirely.
 
 ## Scheduler And Proactive Behavior
 
@@ -445,12 +496,228 @@ MohaMind is designed so your important memory stays understandable and inspectab
 - `/recall` looks through both structured memory and past conversations
 - normal chat can also pull relevant conversation context automatically
 
+## Advanced Memory Features
+
+MohaMind ships a four-layer memory upgrade stack on top of the flat Markdown
+files. Everything here is configured interactively the first time you run
+`uv run mohamind setup` — you do not need to hand-edit `.env`.
+
+### 1. Memory Router + Rolling Summaries — *on by default*
+
+The system prompt no longer dumps every memory category on every turn.
+Instead, a router scores your message against bilingual (Arabic + English)
+cues for each category, picks the 2-4 most relevant ones to inject **in full**,
+and swaps every other category for a **one-paragraph summary** that is
+regenerated only when the source file's modification time changes.
+
+Effect: the prompt stays small and roughly constant in size as your memory
+grows from 10 lines to 10,000.
+
+Wizard keys: `MEMORY_ROUTER_ENABLED`, `MEMORY_SUMMARIES_ENABLED`.
+
+### 2. Hybrid Semantic Search — *opt-in*
+
+On top of the existing FTS5 lexical search, MohaMind can add concept-level
+recall using vector embeddings. Turn it on during setup and pick a backend:
+
+- `openai` — reuses your `OPENAI_API_KEY` with `text-embedding-3-small`.
+- `local` — uses `sentence-transformers` offline. Install the extra once:
+  `uv sync --extra embeddings`.
+
+The agent gets a new `semantic_search_memory` tool, and the existing
+`search_memory` tool becomes hybrid (lexical ∪ semantic). The index is
+SQLite-backed at `memory/.semantic_index.db` and re-indexes incrementally on
+file mtime changes. Rebuild from scratch with `/reindex`.
+
+Wizard keys: `EMBEDDING_BACKEND`, `EMBEDDING_MODEL`.
+
+### 3. Nightly Memory Consolidator — *opt-in*
+
+Each night at a time you pick, the consolidator reviews the last 24h of daily
+logs and chat messages, asks the primary LLM to extract `new_facts`,
+`observations`, and `conflicts`, and then routes each proposal according to
+your chosen mode:
+
+| Mode | Behavior |
+| --- | --- |
+| `auto` | Apply every proposal silently. |
+| `confirm` | Queue every proposal for you to accept/reject. |
+| `hybrid` *(recommended)* | Auto-apply safe additions, queue conflicts and sensitive-category writes for approval. |
+
+Pending proposals show up with `/pending` in the CLI, and in Telegram they
+arrive as inline-keyboard cards with Accept/Reject buttons. A morning digest
+is posted to Telegram the next day.
+
+Wizard keys: `CONSOLIDATOR_ENABLED`, `CONSOLIDATOR_MODE`, `CONSOLIDATOR_TIME`,
+`CONSOLIDATOR_SEND_DIGEST`.
+
+### 4. Provenance + Undo — *always on*
+
+Every memory mutation (write, append, delete, consolidate) appends a
+`MemoryEvent` to `memory/.history.jsonl` with a content hash, a short
+snippet, and the source (`user`, `agent`, `consolidator`, `undo`).
+
+- `/undo` reverts the last memory change across any category.
+- `/why <category> <fragment>` shows the audit trail for a specific line.
+- `/memory_doctor` prints category sizes, summary freshness, and semantic
+  index status.
+
+### Privacy Tiers — *cross-cutting*
+
+Sensitive categories — by default `finances`, `health`, `documents` — are
+treated as tier-1:
+
+- **never** indexed for semantic search (defense-in-depth even if you enable
+  embeddings),
+- **redacted** before being stored in `memory/sessions.db` (amounts, emails,
+  phone numbers, long digits),
+- **redacted** before the verifier LLM sees your messages,
+- **redacted** before being mirrored into the daily log.
+
+Configure the list with `SENSITIVE_CATEGORIES` during setup.
+
+## Memory Architecture
+
+The memory subsystem is built around three loops: an **inbound** loop that
+shapes what the LLM sees, an **outbound** loop that protects what leaves the
+primary agent, and a **nightly** loop that promotes conversation into durable
+facts.
+
+```mermaid
+flowchart TB
+    classDef store fill:#0b3d2e,stroke:#00FF87,color:#E8FFF4;
+    classDef guard fill:#3a1f00,stroke:#FFB86B,color:#FFE4C7;
+    classDef llm   fill:#0b2a44,stroke:#6AB4FF,color:#D7ECFF;
+    classDef core  fill:#1e1e24,stroke:#B794F6,color:#ECE0FF;
+
+    subgraph USER[User surfaces]
+        CLI[CLI]
+        TG[Telegram]
+    end
+
+    MSG([user message]):::core
+
+    subgraph INBOUND[Inbound · build the prompt]
+        ROUTER[Memory Router<br/>scores categories<br/>AR + EN cues]:::core
+        SUMS[(Rolling Summaries<br/>.summaries/ cache)]:::store
+        PROMPT[System Prompt<br/>= profile<br/>+ 2-4 focus cats in FULL<br/>+ 1-para summaries of the rest]:::core
+    end
+
+    subgraph TOOLS[Agent tools]
+        FTS[FTS5 lexical<br/>search_memory]:::core
+        SEM[Semantic Index<br/>cosine over embeddings<br/>semantic_search_memory]:::core
+        HYB{{Hybrid merge}}:::core
+    end
+
+    subgraph BRAIN[LLM layer]
+        PRIM[Primary LLM<br/>z.ai / OpenAI]:::llm
+        VER[Verifier LLM<br/>optional]:::llm
+    end
+
+    subgraph OUTBOUND[Outbound · write to memory]
+        MM[MemoryManager<br/>.write / .append / .delete]:::core
+        PRIV[[Privacy Redactor<br/>amounts · emails · phones · long digits]]:::guard
+        PROV[[Provenance Log<br/>.history.jsonl]]:::guard
+    end
+
+    subgraph STORE[Memory store]
+        MD[(memory/*.md<br/>profile · tasks · reminders<br/>finances · health · ...)]:::store
+        SESS[(sessions.db<br/>conversation history)]:::store
+        DLOG[(daily_log/YYYY-MM-DD.md)]:::store
+        SEMIDX[(.semantic_index.db<br/>sensitive cats excluded)]:::store
+        HIST[(.history.jsonl<br/>audit + undo source)]:::store
+    end
+
+    subgraph NIGHTLY[Nightly consolidator]
+        COLL[Collect last 24h<br/>daily_log + sessions]:::core
+        EXT[LLM extraction<br/>facts · observations · conflicts]:::llm
+        ROUTE{Route by mode<br/>auto / confirm / hybrid}:::core
+        QUEUE[(.pending_consolidations.jsonl)]:::store
+        APPROVE[Telegram Accept/Reject<br/>or /pending in CLI]:::core
+        DIGEST[Morning digest]:::core
+    end
+
+    CLI --> MSG
+    TG --> MSG
+    MSG --> ROUTER
+    ROUTER -->|focus cats| PROMPT
+    ROUTER -.read.-> MD
+    SUMS --> PROMPT
+    MD -.summarize.-> SUMS
+
+    PROMPT --> PRIM
+    PRIM <--> FTS
+    PRIM <--> SEM
+    FTS --> HYB
+    SEM --> HYB
+    HYB --> PRIM
+    FTS -.reads.-> MD
+    SEM -.reads.-> SEMIDX
+
+    PRIM -->|draft reply| VER
+    VER -->|verdict| PRIM
+    PRIM -->|"memory mutations<br/>(remember · forget · note)"| MM
+
+    MM --> PRIV
+    PRIV --> MD
+    PRIV --> SESS
+    PRIV --> DLOG
+    MM --> PROV
+    PROV --> HIST
+
+    MD -.mtime change.-> SEMIDX
+    MD -.mtime change.-> SUMS
+
+    DLOG --> COLL
+    SESS --> COLL
+    COLL --> EXT
+    EXT --> ROUTE
+    ROUTE -->|safe auto| MM
+    ROUTE -->|needs approval| QUEUE
+    QUEUE --> APPROVE
+    APPROVE -->|accept| MM
+    ROUTE --> DIGEST
+    DIGEST --> TG
+
+    HIST -.-> UNDO[/undo<br/>/why]:::core
+    UNDO --> MM
+```
+
+**How to read the diagram:**
+
+- The **inbound** path (`message → Router → Summaries + focus cats → Prompt`)
+  is what keeps context cost bounded no matter how large `memory/` grows.
+- The **Hybrid search** box is the tool surface the LLM actually calls —
+  lexical FTS5 and semantic vectors are merged and deduped before being
+  handed back.
+- Every write goes through the **Privacy Redactor** and appends to the
+  **Provenance Log**. That is what makes `/undo` and `/why` possible.
+- The **Nightly** loop promotes transient conversation into durable facts —
+  with a hybrid approval policy so risky writes are never silent.
+
 ## Integrations
 
 ### LLM Providers
 
-- `z.ai` is the default primary provider
-- `OpenAI` is supported as primary or fallback
+- `z.ai` is the default primary provider.
+- `OpenAI` is supported as primary or as the secondary brain.
+
+### Secondary-Brain Strategy
+
+The `LLM_STRATEGY` env variable controls how the secondary provider is used:
+
+| Strategy | Behavior |
+| --- | --- |
+| `solo` | Only the primary LLM is ever called. No second brain. |
+| `fallback` | The secondary is called only if the primary API call fails. |
+| `verify` | After every reply, the secondary grades the primary's answer. If it flags real issues, the primary is re-prompted once with the critique, then the corrected answer is returned to the user. |
+
+Tune `verify` mode with:
+
+- `VERIFIER_STRICTNESS` — `lenient`, `balanced`, or `strict`.
+- `VERIFIER_MAX_RETRIES` — how many revision rounds are allowed (default `1`).
+
+All three strategies are first-class options in the setup wizard.
 
 ### Google Calendar
 
@@ -474,6 +741,10 @@ Most users only need these values:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `PRIMARY_LLM` | yes | `zai` or `openai` |
+| `LLM_STRATEGY` | no | `solo`, `fallback` (default), or `verify` |
+| `SECONDARY_LLM` | no | `zai`, `openai`, or `none` |
+| `VERIFIER_STRICTNESS` | no | `lenient`, `balanced` (default), `strict` |
+| `VERIFIER_MAX_RETRIES` | no | how many times to revise (default `1`) |
 | `ZAI_API_KEY` | if using z.ai | z.ai API key |
 | `OPENAI_API_KEY` | if using OpenAI | OpenAI API key |
 | `TIMEZONE` | yes | your local timezone |
@@ -481,23 +752,140 @@ Most users only need these values:
 | `WEEKLY_REVIEW_DAY` | no | weekly review day |
 | `WEEKLY_REVIEW_TIME` | no | weekly review time |
 | `MEMORY_DIR` | no | defaults to `./memory` |
+| `TELEGRAM_ALLOW_DESTRUCTIVE` | no | set to `false` to lock down `/forget`, `/untask`, `/delete_note` |
 
 Use `.env.example` as the full reference.
 
-## Architecture
+## System Architecture
+
+Zooming out from the memory subsystem, the full agent looks like this:
+
+```mermaid
+flowchart LR
+    classDef surf fill:#14213d,stroke:#8ecae6,color:#E8F3FF;
+    classDef core fill:#1e1e24,stroke:#B794F6,color:#ECE0FF;
+    classDef mcp  fill:#0b3d2e,stroke:#00FF87,color:#E8FFF4;
+    classDef ext  fill:#3a1f00,stroke:#FFB86B,color:#FFE4C7;
+    classDef sch  fill:#2a1e3a,stroke:#C792EA,color:#EEE0FF;
+
+    subgraph SURF[User surfaces]
+        CLI[Interactive CLI<br/>mohamind]:::surf
+        TGS[Telegram bot<br/>mohamind --bot]:::surf
+        ONE[One-shot<br/>mohamind -p '...']:::surf
+    end
+
+    subgraph AGENT[MohaMindAgent core]
+        LOOP[Chat loop<br/>tool-calling]:::core
+        PROMPT[Dynamic system prompt<br/>Router + Summaries]:::core
+        MEM[MemoryManager<br/>+ Privacy<br/>+ Provenance]:::core
+        SEARCH[Hybrid Search<br/>FTS5 + Semantic]:::core
+    end
+
+    subgraph BRAINS[LLM providers]
+        ZAI[z.ai GLM]:::ext
+        OAI[OpenAI GPT]:::ext
+        VER[Verifier<br/>strategy=verify]:::ext
+        EMB[Embeddings<br/>openai / local]:::ext
+    end
+
+    subgraph MCP[MCP tool servers]
+        MMS[memory_store]:::mcp
+        REM[reminders]:::mcp
+        GCAL[google_calendar]:::mcp
+        MSG[microsoft_graph]:::mcp
+        NOTE[notes + attention]:::mcp
+    end
+
+    subgraph SCHED[Scheduler · APScheduler]
+        BR[Daily briefing]:::sch
+        RE[Reminder engine<br/>every 30 min]:::sch
+        EX[Expiry guardian]:::sch
+        WR[Weekly review]:::sch
+        SP[Social pulse]:::sch
+        CON[Nightly consolidator]:::sch
+    end
+
+    subgraph STORE[Local storage]
+        MD[(memory/*.md)]
+        DB[(sessions.db)]
+        HIST[(.history.jsonl)]
+        SEMIDX[(.semantic_index.db)]
+        CREDS[(credentials/)]
+    end
+
+    CLI <--> LOOP
+    TGS <--> LOOP
+    ONE --> LOOP
+    LOOP --> PROMPT
+    PROMPT --> MEM
+    LOOP --> SEARCH
+    LOOP <--> ZAI
+    LOOP <--> OAI
+    LOOP -.if verify.-> VER
+    SEARCH --> EMB
+    LOOP --> MMS
+    LOOP --> REM
+    LOOP --> GCAL
+    LOOP --> MSG
+    LOOP --> NOTE
+    MEM --> MD
+    MEM --> HIST
+    MMS --> MD
+    SEARCH --> MD
+    SEARCH --> SEMIDX
+    GCAL --> CREDS
+    MSG --> CREDS
+    REM --> MD
+
+    SCHED --> MEM
+    SCHED --> TGS
+    CON -.reads.-> DB
+    CON -.reads.-> MD
+    BR -.reads.-> MD
+    RE -.reads.-> MD
+    EX -.reads.-> MD
+
+    LOOP --> DB
+```
+
+**The three loops you should remember:**
+
+1. **Chat loop** — CLI/Telegram message → dynamic prompt → LLM (± verifier) →
+   tool calls (memory, reminders, calendar) → reply.
+2. **Scheduler loop** — APScheduler fires jobs (briefing, reminders,
+   expiry, weekly review, consolidator) that read memory and push to Telegram.
+3. **Memory loop** — every write is redacted, persisted to Markdown, and
+   logged for `/undo` + `/why`. The nightly consolidator promotes new facts
+   from daily log + sessions into durable memory.
+
+## Repository Layout
 
 ```text
 MohaMind/
 ├── moha_mind/
-│   ├── agent/            core agent, memory, session recall, prompting
-│   ├── cli/              interactive terminal app
-│   ├── mcp_servers/      task, reminder, family, finance, memory, attention
-│   ├── scheduler/        background jobs and proactive checks
-│   ├── telegram_bot/     Telegram handlers
-│   └── utils/            timezone, date, Arabic support helpers
-├── memory/               user memory files and sessions.db
-├── credentials/          optional calendar credentials
-└── tests/                test suite
+│   ├── agent/                core agent + memory subsystem
+│   │   ├── core.py              chat loop, tool routing, hybrid search
+│   │   ├── memory.py            MemoryManager (reads/writes .md files)
+│   │   ├── memory_router.py     scores & picks focus categories
+│   │   ├── memory_summarizer.py one-paragraph summaries per category
+│   │   ├── semantic_index.py    SQLite vector store
+│   │   ├── embeddings.py        OpenAI + local backends
+│   │   ├── privacy.py           redactors for sensitive tiers
+│   │   ├── provenance.py        append-only audit log (.history.jsonl)
+│   │   ├── session_store.py     sessions.db (conversation recall)
+│   │   ├── verifier.py          secondary-brain review strategy
+│   │   └── system_prompt.py     dynamic prompt builder
+│   ├── cli/                  interactive terminal app + setup wizard
+│   ├── mcp_servers/          memory_store, reminders, google_calendar,
+│   │                         microsoft_graph, ...
+│   ├── scheduler/            daily briefing, reminders, weekly review,
+│   │                         expiry guardian, social pulse,
+│   │                         memory_consolidator
+│   ├── telegram_bot/         handlers, formatters, inline-keyboard flows
+│   └── utils/                timezone, Arabic normalization, schedules
+├── memory/                   Markdown memory + sessions.db + audit log
+├── credentials/              optional Google / Microsoft OAuth
+└── tests/                    513 tests covering agent, memory, scheduler
 ```
 
 ## Troubleshooting
@@ -512,7 +900,7 @@ MohaMind/
 
 Current local verification:
 
-- `uv run pytest -q` -> `400 passed`
+- `uv run pytest -q` -> `513 passed`
 - `uv run ruff check .` -> clean
 
 ## Development

@@ -6,7 +6,17 @@ from datetime import datetime, timedelta
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.config import settings
 from moha_mind.utils.logging_config import log
-from moha_mind.utils.timezone import KSA_TZ, now_ksa
+from moha_mind.utils.timezone import KSA_TZ, format_datetime_en, now_ksa
+
+
+def _format_calendar_start(raw: str) -> str:
+    """Format a Google Calendar start value (date or dateTime) as 12-hour display."""
+    if not raw:
+        return ""
+    if "T" in raw:
+        slice_ = raw[:16].replace("T", " ")
+        return format_datetime_en(slice_)
+    return raw
 
 
 class GoogleCalendarServer:
@@ -105,7 +115,7 @@ class GoogleCalendarServer:
                 summary = event.get("summary", "No title")
                 location = event.get("location", "")
                 loc_str = f" @ {location}" if location else ""
-                lines.append(f"- {start[:16].replace('T', ' ')} {summary}{loc_str}")
+                lines.append(f"- {_format_calendar_start(start)} {summary}{loc_str}")
 
             return "\n".join(lines)
         except Exception as e:

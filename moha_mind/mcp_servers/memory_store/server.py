@@ -78,6 +78,10 @@ class MemoryStoreServer:
             return "No notes saved"
         return "Notes:\n" + "\n".join(f"  - {n}" for n in notes)
 
+    async def _save_daily_log(self, summary: str) -> str:
+        self.memory.save_daily_log(summary)
+        return "Daily log saved"
+
     async def _append_to_section(self, category: str, section: str, line: str) -> str:
         self.memory.append_to_section(category, section, line)
         return f"Added to {category} > {section}"

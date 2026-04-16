@@ -3,7 +3,7 @@ from datetime import datetime
 
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.utils.occasions import upcoming_occasions
-from moha_mind.utils.timezone import days_until, now_ksa
+from moha_mind.utils.timezone import days_until, format_datetime_en, now_ksa
 
 
 class AttentionServer:
@@ -98,7 +98,7 @@ class AttentionServer:
                 timing = f"in {days}d"
                 icon = "🕰️"
 
-            event_suffix = f" → {reminder['event_at']}" if reminder.get("event_at") else ""
+            event_suffix = f" → {format_datetime_en(reminder['event_at'])}" if reminder.get("event_at") else ""
             signals.append(
                 {
                     "score": score,

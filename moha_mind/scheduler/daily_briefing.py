@@ -5,7 +5,7 @@ from moha_mind.agent.memory import MemoryManager
 from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.telegram_bot.formatters import truncate_message
 from moha_mind.utils.logging_config import log
-from moha_mind.utils.timezone import ksa_date_display
+from moha_mind.utils.timezone import ksa_date_display, ksa_date_display_ar
 
 
 class DailyBriefing:
@@ -21,7 +21,7 @@ class DailyBriefing:
         try:
             briefing = await self.agent.generate_briefing()
 
-            header = f"🌅 Good Morning! {ksa_date_display()}\n\n"
+            header = f"🌅 صباح الخير. {ksa_date_display_ar()}\n\n"
             full_message = header + briefing
 
             for part in truncate_message(full_message):
@@ -34,7 +34,7 @@ class DailyBriefing:
             log.error(f"Morning briefing failed: {e}")
             try:
                 await self.bot.send_message(
-                    "Good morning! I had trouble generating your full briefing today. Talk to me for a summary."
+                    "صباح الخير. واجهت مشكلة أثناء إعداد الملخص الكامل اليوم. اكتب لي وسأعطيك ملخصًا سريعًا."
                 )
             except Exception:
                 pass

@@ -9,6 +9,18 @@ from moha_mind.telegram_bot.formatters import truncate_message
 from moha_mind.utils.logging_config import log
 
 
+def _days_remaining(days: int) -> str:
+    if days == 0:
+        return "ينتهي اليوم"
+    if days == 1:
+        return "باقي يوم واحد"
+    if days == 2:
+        return "باقي يومان"
+    if 3 <= days <= 10:
+        return f"باقي {days} أيام"
+    return f"باقي {days} يومًا"
+
+
 class ExpiryGuardian:
     def __init__(self, memory: MemoryManager, bot: MohaMindBot):
         self.memory = memory
@@ -30,25 +42,25 @@ class ExpiryGuardian:
         alert_lines = []
 
         if urgent:
-            alert_lines.append("🔴 URGENT - Expiring This Week:")
+            alert_lines.append("🔴 عاجل - ينتهي هذا الأسبوع:")
             for item in urgent:
                 if item["days_left"] == 0:
-                    alert_lines.append(f"  ⚠️ EXPIRES TODAY: {item['detail']}")
+                    alert_lines.append(f"  ⚠️ ينتهي اليوم: {item['detail']}")
                 else:
-                    alert_lines.append(f"  ⚠️ {item['days_left']}d: {item['detail']}")
+                    alert_lines.append(f"  ⚠️ {_days_remaining(item['days_left'])}: {item['detail']}")
 
         if warning:
-            alert_lines.append("\n🟡 Expiring This Month:")
+            alert_lines.append("\n🟡 ينتهي هذا الشهر:")
             for item in warning:
-                alert_lines.append(f"  - {item['days_left']}d: {item['detail']}")
+                alert_lines.append(f"  - {_days_remaining(item['days_left'])}: {item['detail']}")
 
         if info and len(info) <= 3:
-            alert_lines.append("\n🟢 Coming Up (90 days):")
+            alert_lines.append("\n🟢 خلال 90 يومًا:")
             for item in info:
-                alert_lines.append(f"  - {item['days_left']}d: {item['detail']}")
+                alert_lines.append(f"  - {_days_remaining(item['days_left'])}: {item['detail']}")
 
         if alert_lines:
-            message = "🔔 Expiry Guardian Alert\n\n" + "\n".join(alert_lines)
+            message = "🔔 تنبيه الانتهاء\n\n" + "\n".join(alert_lines)
             for part in truncate_message(message):
                 await self.bot.send_message(part)
             log.info(f"Expiry Guardian: sent alert with {len(items)} items")

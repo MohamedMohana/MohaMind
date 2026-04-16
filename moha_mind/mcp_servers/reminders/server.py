@@ -4,7 +4,36 @@ from datetime import datetime
 from typing import Literal, Optional
 
 from moha_mind.agent.memory import MemoryManager
-from moha_mind.utils.timezone import now_ksa
+from moha_mind.utils.reminder_schedule import (
+    COUNTDOWN_REPEATS,
+    format_list_field,
+    initial_remind_at,
+    normalize_bool,
+    normalize_times,
+    normalize_weekdays,
+    parse_datetime_field,
+)
+from moha_mind.utils.timezone import (
+    format_datetime_ar,
+    format_datetime_en,
+    format_time_ar,
+    format_time_en,
+    now_ksa,
+)
+
+
+def _status_label(status: str, language: str) -> str:
+    if language != "ar":
+        return status
+    return "مكتمل" if status == "done" else "نشط"
+
+
+def _format_times_ar(times: str) -> str:
+    return "، ".join(format_time_ar(time) for time in times.split(",") if time.strip())
+
+
+def _format_times_en(times: str) -> str:
+    return ", ".join(format_time_en(time) for time in times.split(",") if time.strip())
 
 
 class ReminderServer:
@@ -25,33 +54,87 @@ class ReminderServer:
     async def _add_reminder(
         self,
         text: str,
-        remind_at: str,
+        remind_at: str = "",
         event_at: str = "",
-        repeat: Literal["none", "daily", "weekly", "monthly", "annual", "every_2_days"] = "none",
+        repeat: Literal[
+            "none",
+            "daily",
+            "weekly",
+            "monthly",
+            "annual",
+            "every_2_days",
+            "every_n_days",
+            "countdown",
+            "annual_countdown",
+        ] = "none",
+        times: list[str] | None = None,
+        weekdays: list[str] | None = None,
+        skip_weekends: bool = False,
+        interval_days: Optional[int] = None,
+        lead_days: Optional[int] = None,
         notes: str = "",
         source: str = "agent",
     ) -> str:
-        datetime.strptime(remind_at, "%Y-%m-%d %H:%M")
+        """Schedule one-time, recurring, multi-time, weekday, and countdown reminders."""
+        normalized_times = normalize_times(times)
+        normalized_weekdays = normalize_weekdays(weekdays)
+        normalized_skip_weekends = normalize_bool(skip_weekends)
+
         if event_at:
-            datetime.strptime(event_at, "%Y-%m-%d %H:%M")
+            parsed_event_at = parse_datetime_field(event_at, normalized_times[0] if normalized_times else "09:00")
+            event_at = parsed_event_at.strftime("%Y-%m-%d %H:%M")
+
+        reminder = {
+            "text": text,
+            "remind_at": remind_at,
+            "event_at": event_at,
+            "repeat": repeat,
+            "times": format_list_field(normalized_times),
+            "weekdays": format_list_field(normalized_weekdays),
+            "skip_weekends": "true" if normalized_skip_weekends else "false",
+            "interval_days": str(interval_days) if interval_days else "",
+            "lead_days": str(lead_days) if lead_days else "",
+        }
+        remind_at = initial_remind_at(reminder)
+        event_at = reminder.get("event_at", event_at)
+        if reminder.get("times") and not normalized_times:
+            normalized_times = normalize_times(reminder["times"])
 
         self.memory.add_reminder(
             text=text,
             remind_at=remind_at,
             event_at=event_at,
             repeat=repeat,
+            times=format_list_field(normalized_times),
+            weekdays=format_list_field(normalized_weekdays),
+            skip_weekends=normalized_skip_weekends,
+            interval_days=interval_days,
+            lead_days=lead_days,
             notes=notes,
             source=source,
         )
 
-        suffix = f" → event at {event_at}" if event_at else ""
         repeat_text = "" if repeat == "none" else f" ({repeat})"
-        return f"Reminder scheduled: {text} at {remind_at}{suffix}{repeat_text}"
+        schedule_parts = []
+        if normalized_times:
+            schedule_parts.append(f"times:{_format_times_ar(format_list_field(normalized_times))}")
+        if normalized_weekdays:
+            schedule_parts.append(f"weekdays:{','.join(normalized_weekdays)}")
+        if normalized_skip_weekends:
+            schedule_parts.append("skip weekends")
+        if interval_days:
+            schedule_parts.append(f"every {interval_days} days")
+        if repeat in COUNTDOWN_REPEATS and lead_days:
+            schedule_parts.append(f"{lead_days} day countdown")
+        schedule_text = f" | {'; '.join(schedule_parts)}" if schedule_parts else ""
+        display_remind_at = format_datetime_en(remind_at)
+        display_suffix = f" → event at {format_datetime_en(event_at)}" if event_at else ""
+        return f"Reminder scheduled: {text} at {display_remind_at}{display_suffix}{repeat_text}{schedule_text}"
 
-    async def _list_reminders(self, days_ahead: int = 14, include_completed: bool = False) -> str:
+    async def _list_reminders(self, days_ahead: int = 14, include_completed: bool = False, language: str = "en") -> str:
         reminders = self.memory.get_reminder_section(include_completed=include_completed)
         if not reminders:
-            return "No reminders scheduled"
+            return "لا توجد تذكيرات مجدولة" if language == "ar" else "No reminders scheduled"
 
         now = now_ksa().replace(tzinfo=None)
         visible = []
@@ -67,13 +150,56 @@ class ReminderServer:
                 continue
 
             status = "done" if reminder["done"] else "active"
-            event_suffix = f" | event:{reminder['event_at']}" if reminder.get("event_at") else ""
-            repeat_suffix = "" if reminder.get("repeat", "none") == "none" else f" | repeat:{reminder['repeat']}"
-            visible.append(f"- [{status}] {reminder['text']} | remind:{remind_at}{event_suffix}{repeat_suffix}")
+            if language == "ar":
+                schedule = []
+                if reminder.get("times"):
+                    schedule.append(f"الأوقات: {_format_times_ar(reminder['times'])}")
+                if reminder.get("weekdays"):
+                    schedule.append(f"الأيام:{reminder['weekdays']}")
+                if str(reminder.get("skip_weekends", "")).lower() == "true":
+                    schedule.append("بدون نهاية الأسبوع")
+                if reminder.get("interval_days"):
+                    schedule.append(f"كل {reminder['interval_days']} يوم")
+                if reminder.get("lead_days"):
+                    schedule.append(f"قبل {reminder['lead_days']} يوم")
+                schedule_suffix = f" | الجدول:{'; '.join(schedule)}" if schedule else ""
+                event_suffix = (
+                    f" | وقت الحدث: {format_datetime_ar(reminder['event_at'])}" if reminder.get("event_at") else ""
+                )
+                repeat_suffix = "" if reminder.get("repeat", "none") == "none" else f" | التكرار: {reminder['repeat']}"
+                visible.append(
+                    f"- [{_status_label(status, language)}] {reminder['text']} | "
+                    f"وقت التذكير: {format_datetime_ar(remind_at)}"
+                    f"{event_suffix}{repeat_suffix}{schedule_suffix}"
+                )
+            else:
+                schedule = []
+                if reminder.get("times"):
+                    schedule.append(f"times:{_format_times_en(reminder['times'])}")
+                if reminder.get("weekdays"):
+                    schedule.append(f"weekdays:{reminder['weekdays']}")
+                if str(reminder.get("skip_weekends", "")).lower() == "true":
+                    schedule.append("skip_weekends")
+                if reminder.get("interval_days"):
+                    schedule.append(f"interval:{reminder['interval_days']}d")
+                if reminder.get("lead_days"):
+                    schedule.append(f"lead:{reminder['lead_days']}d")
+                schedule_suffix = f" | schedule:{'; '.join(schedule)}" if schedule else ""
+                event_suffix = (
+                    f" | event:{format_datetime_en(reminder['event_at'])}" if reminder.get("event_at") else ""
+                )
+                repeat_suffix = "" if reminder.get("repeat", "none") == "none" else f" | repeat:{reminder['repeat']}"
+                visible.append(
+                    f"- [{status}] {reminder['text']} | remind:{format_datetime_en(remind_at)}"
+                    f"{event_suffix}{repeat_suffix}{schedule_suffix}"
+                )
 
         if not visible:
+            if language == "ar":
+                return f"لا توجد تذكيرات خلال {days_ahead} يومًا القادمة"
             return f"No reminders in the next {days_ahead} days"
-        return "⏰ Scheduled reminders:\n" + "\n".join(visible)
+        heading = "⏰ التذكيرات المجدولة:\n" if language == "ar" else "⏰ Scheduled reminders:\n"
+        return heading + "\n".join(visible)
 
     async def _complete_reminder(self, text: str, remind_at: Optional[str] = None) -> str:
         success = self.memory.complete_reminder(text, remind_at=remind_at)

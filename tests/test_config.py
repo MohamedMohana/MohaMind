@@ -12,7 +12,7 @@ class TestSettings:
         assert s.morning_briefing_time == "08:00"
         assert s.memory_dir == "./memory"
         assert s.log_level == "INFO"
-        assert s.zai_model == "glm-4-plus"
+        assert s.zai_model == "glm-5-turbo"
         assert s.openai_model == "gpt-4o-mini"
 
     def test_memory_path_property(self):
@@ -24,8 +24,8 @@ class TestSettings:
         config = s.active_llm_config
         assert config["provider"] == "zai"
         assert config["api_key"] == "zai-key-123"
-        assert config["model"] == "glm-4-plus"
-        assert config["base_url"] == "https://open.bigmodel.cn/api/paas/v4/"
+        assert config["model"] == "glm-5-turbo"
+        assert config["base_url"] == "https://api.z.ai/api/paas/v4/"
 
     def test_active_llm_config_openai(self):
         s = Settings(
@@ -84,5 +84,5 @@ class TestSettings:
     def test_llm_providers_dict(self):
         assert "zai" in LLM_PROVIDERS
         assert "openai" in LLM_PROVIDERS
-        assert LLM_PROVIDERS["zai"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4/"
+        assert LLM_PROVIDERS["zai"]["base_url"] == "https://api.z.ai/api/paas/v4/"
         assert LLM_PROVIDERS["openai"]["base_url"] is None
