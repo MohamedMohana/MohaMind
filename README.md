@@ -578,122 +578,152 @@ Configure the list with `SENSITIVE_CATEGORIES` during setup.
 
 ## Memory Architecture
 
-The memory subsystem is built around three loops: an **inbound** loop that
-shapes what the LLM sees, an **outbound** loop that protects what leaves the
-primary agent, and a **nightly** loop that promotes conversation into durable
-facts.
+The memory subsystem is built around four concentric ideas — **Route**,
+**Recall**, **Retain**, **Reflect** — wrapped by a **Privacy / Provenance**
+guard that every write crosses.
+
+### Concept map
 
 ```mermaid
 flowchart TB
-    classDef store fill:#0b3d2e,stroke:#00FF87,color:#E8FFF4;
-    classDef guard fill:#3a1f00,stroke:#FFB86B,color:#FFE4C7;
-    classDef llm   fill:#0b2a44,stroke:#6AB4FF,color:#D7ECFF;
-    classDef core  fill:#1e1e24,stroke:#B794F6,color:#ECE0FF;
+    classDef hero  fill:#14213d,stroke:#8ecae6,color:#E8F3FF,stroke-width:2px;
+    classDef tier  fill:#1e1e24,stroke:#B794F6,color:#ECE0FF,stroke-width:1px;
+    classDef guard fill:#3a1f00,stroke:#FFB86B,color:#FFE4C7,stroke-width:1px;
 
-    subgraph USER[User surfaces]
-        CLI[CLI]
-        TG[Telegram]
+    HERO(("MohaMind<br>Memory")):::hero
+
+    R1["1 · Route<br>Memory Router<br>+ Rolling Summaries"]:::tier
+    R2["2 · Recall<br>Hybrid Search<br>FTS5 + Semantic"]:::tier
+    R3["3 · Retain<br>Markdown files<br>+ sessions.db"]:::tier
+    R4["4 · Reflect<br>Nightly Consolidator<br>facts + conflicts"]:::tier
+
+    GUARD["Privacy Tiers + Provenance Log<br>wraps every read and write · enables undo / why"]:::guard
+
+    HERO --- R1
+    HERO --- R2
+    HERO --- R3
+    HERO --- R4
+
+    R1 -. "picks what LLM sees" .-> R2
+    R2 -. "retrieves from" .-> R3
+    R3 -. "feeds nightly review" .-> R4
+    R4 -. "writes safe facts back" .-> R3
+
+    GUARD --- HERO
+```
+
+### Data flow — one turn + the nightly loop
+
+The diagram below is laid out in clear top-to-bottom phases so you can trace
+a message all the way from the user, through the LLM, into durable storage,
+and eventually back out through the nightly consolidator.
+
+```mermaid
+flowchart TB
+    classDef store fill:#0b3d2e,stroke:#00FF87,color:#E8FFF4,stroke-width:1px;
+    classDef guard fill:#3a1f00,stroke:#FFB86B,color:#FFE4C7,stroke-width:1px;
+    classDef llm   fill:#0b2a44,stroke:#6AB4FF,color:#D7ECFF,stroke-width:1px;
+    classDef core  fill:#1e1e24,stroke:#B794F6,color:#ECE0FF,stroke-width:1px;
+    classDef phase fill:none,stroke:#555,color:#ddd,stroke-dasharray:3 3;
+
+    subgraph P0["0 — User input"]
+        direction LR
+        U(["User message<br>CLI or Telegram"]):::core
     end
 
-    MSG([user message]):::core
-
-    subgraph INBOUND[Inbound · build the prompt]
-        ROUTER[Memory Router<br/>scores categories<br/>AR + EN cues]:::core
-        SUMS[(Rolling Summaries<br/>.summaries/ cache)]:::store
-        PROMPT[System Prompt<br/>= profile<br/>+ 2-4 focus cats in FULL<br/>+ 1-para summaries of the rest]:::core
+    subgraph P1["1 — Route (build the prompt)"]
+        direction LR
+        ROUTER["Memory Router<br>AR + EN cue scoring"]:::core
+        SUMS[("Rolling<br>Summaries")]:::store
+        PROMPT["Dynamic Prompt<br>profile + 2-4 focus cats<br>+ summaries of the rest"]:::core
+        ROUTER --> PROMPT
+        SUMS --> PROMPT
     end
 
-    subgraph TOOLS[Agent tools]
-        FTS[FTS5 lexical<br/>search_memory]:::core
-        SEM[Semantic Index<br/>cosine over embeddings<br/>semantic_search_memory]:::core
-        HYB{{Hybrid merge}}:::core
+    subgraph P2["2 — Think (LLM + tools)"]
+        direction LR
+        PRIM["Primary LLM<br>z.ai or OpenAI"]:::llm
+        VER["Verifier<br>optional"]:::llm
+        subgraph RECALL["Recall · Hybrid Search"]
+            direction TB
+            FTS["FTS5 lexical"]:::core
+            SEM["Semantic vectors"]:::core
+            HYB{{"Merge + dedupe"}}:::core
+            FTS --> HYB
+            SEM --> HYB
+        end
+        PRIM <--> HYB
+        PRIM <-. "review" .-> VER
     end
 
-    subgraph BRAIN[LLM layer]
-        PRIM[Primary LLM<br/>z.ai / OpenAI]:::llm
-        VER[Verifier LLM<br/>optional]:::llm
+    subgraph P3["3 — Guard + Retain (every write)"]
+        direction LR
+        MM["MemoryManager"]:::core
+        PRIV["Privacy Redactor"]:::guard
+        PROV["Provenance Log"]:::guard
+        MM --> PRIV
+        MM --> PROV
     end
 
-    subgraph OUTBOUND[Outbound · write to memory]
-        MM[MemoryManager<br/>.write / .append / .delete]:::core
-        PRIV[[Privacy Redactor<br/>amounts · emails · phones · long digits]]:::guard
-        PROV[[Provenance Log<br/>.history.jsonl]]:::guard
+    subgraph STORE["Memory store"]
+        direction LR
+        MD[("markdown<br>per-category")]:::store
+        SESS[("sessions.db")]:::store
+        DLOG[("daily log")]:::store
+        SEMIDX[("semantic<br>index.db")]:::store
+        HIST[("history.jsonl")]:::store
     end
 
-    subgraph STORE[Memory store]
-        MD[(memory/*.md<br/>profile · tasks · reminders<br/>finances · health · ...)]:::store
-        SESS[(sessions.db<br/>conversation history)]:::store
-        DLOG[(daily_log/YYYY-MM-DD.md)]:::store
-        SEMIDX[(.semantic_index.db<br/>sensitive cats excluded)]:::store
-        HIST[(.history.jsonl<br/>audit + undo source)]:::store
+    subgraph P4["4 — Reflect (nightly, opt-in)"]
+        direction LR
+        COLL["Collect<br>last 24h"]:::core
+        EXT["LLM extraction<br>facts + conflicts"]:::llm
+        ROUTE{"auto / hybrid<br>/ confirm"}:::core
+        QUEUE[("pending<br>queue")]:::store
+        APPROVE["Approve<br>Telegram or CLI"]:::core
+        COLL --> EXT --> ROUTE
+        ROUTE -- "safe" --> APPROVE
+        ROUTE -- "risky" --> QUEUE --> APPROVE
     end
 
-    subgraph NIGHTLY[Nightly consolidator]
-        COLL[Collect last 24h<br/>daily_log + sessions]:::core
-        EXT[LLM extraction<br/>facts · observations · conflicts]:::llm
-        ROUTE{Route by mode<br/>auto / confirm / hybrid}:::core
-        QUEUE[(.pending_consolidations.jsonl)]:::store
-        APPROVE[Telegram Accept/Reject<br/>or /pending in CLI]:::core
-        DIGEST[Morning digest]:::core
-    end
-
-    CLI --> MSG
-    TG --> MSG
-    MSG --> ROUTER
-    ROUTER -->|focus cats| PROMPT
-    ROUTER -.read.-> MD
-    SUMS --> PROMPT
-    MD -.summarize.-> SUMS
-
+    U --> ROUTER
     PROMPT --> PRIM
-    PRIM <--> FTS
-    PRIM <--> SEM
-    FTS --> HYB
-    SEM --> HYB
-    HYB --> PRIM
-    FTS -.reads.-> MD
-    SEM -.reads.-> SEMIDX
+    PRIM --> MM
 
-    PRIM -->|draft reply| VER
-    VER -->|verdict| PRIM
-    PRIM -->|"memory mutations<br/>(remember · forget · note)"| MM
-
-    MM --> PRIV
     PRIV --> MD
     PRIV --> SESS
     PRIV --> DLOG
-    MM --> PROV
     PROV --> HIST
 
-    MD -.mtime change.-> SEMIDX
-    MD -.mtime change.-> SUMS
+    FTS -. "reads" .-> MD
+    SEM -. "reads" .-> SEMIDX
+    MD -. "mtime change" .-> SEMIDX
+    MD -. "mtime change" .-> SUMS
+    ROUTER -. "read" .-> MD
 
-    DLOG --> COLL
+    MD --> COLL
     SESS --> COLL
-    COLL --> EXT
-    EXT --> ROUTE
-    ROUTE -->|safe auto| MM
-    ROUTE -->|needs approval| QUEUE
-    QUEUE --> APPROVE
-    APPROVE -->|accept| MM
-    ROUTE --> DIGEST
-    DIGEST --> TG
+    APPROVE -. "accepted writes" .-> MM
 
-    HIST -.-> UNDO[/undo<br/>/why]:::core
-    UNDO --> MM
+    UNDO["undo and why<br>CLI commands"]:::core
+    HIST -.-> UNDO
+    UNDO -.-> MM
 ```
 
 **How to read the diagram:**
 
-- The **inbound** path (`message → Router → Summaries + focus cats → Prompt`)
-  is what keeps context cost bounded no matter how large `memory/` grows.
-- The **Hybrid search** box is the tool surface the LLM actually calls —
-  lexical FTS5 and semantic vectors are merged and deduped before being
-  handed back.
-- Every write goes through the **Privacy Redactor** and appends to the
-  **Provenance Log**. That is what makes `/undo` and `/why` possible.
-- The **Nightly** loop promotes transient conversation into durable facts —
-  with a hybrid approval policy so risky writes are never silent.
+- Phase 1 — **Route** keeps prompt size flat as memory grows. Only profile and
+  the top-scoring categories go in full; everything else is a one-paragraph
+  summary.
+- Phase 2 — **Think** is where the LLM calls the `search_memory` tool. Lexical
+  FTS5 and semantic vectors are merged into a single ranked list before being
+  returned to the model.
+- Phase 3 — **Guard + Retain** is the outbound choke point. No write reaches
+  disk without passing the Privacy Redactor and appending to the Provenance
+  Log — which is what makes `/undo` and `/why` possible.
+- Phase 4 — **Reflect** runs once per day (opt-in). It distills durable facts
+  from yesterday's activity and, in `hybrid` mode, auto-applies safe additions
+  while queueing anything sensitive or conflicting for your approval.
 
 ## Integrations
 
@@ -761,91 +791,85 @@ Use `.env.example` as the full reference.
 Zooming out from the memory subsystem, the full agent looks like this:
 
 ```mermaid
-flowchart LR
-    classDef surf fill:#14213d,stroke:#8ecae6,color:#E8F3FF;
-    classDef core fill:#1e1e24,stroke:#B794F6,color:#ECE0FF;
-    classDef mcp  fill:#0b3d2e,stroke:#00FF87,color:#E8FFF4;
-    classDef ext  fill:#3a1f00,stroke:#FFB86B,color:#FFE4C7;
-    classDef sch  fill:#2a1e3a,stroke:#C792EA,color:#EEE0FF;
+flowchart TB
+    classDef surf fill:#14213d,stroke:#8ecae6,color:#E8F3FF,stroke-width:1px;
+    classDef core fill:#1e1e24,stroke:#B794F6,color:#ECE0FF,stroke-width:1px;
+    classDef mcp  fill:#0b3d2e,stroke:#00FF87,color:#E8FFF4,stroke-width:1px;
+    classDef ext  fill:#3a1f00,stroke:#FFB86B,color:#FFE4C7,stroke-width:1px;
+    classDef sch  fill:#2a1e3a,stroke:#C792EA,color:#EEE0FF,stroke-width:1px;
 
-    subgraph SURF[User surfaces]
-        CLI[Interactive CLI<br/>mohamind]:::surf
-        TGS[Telegram bot<br/>mohamind --bot]:::surf
-        ONE[One-shot<br/>mohamind -p '...']:::surf
+    subgraph SURF["1 · User surfaces"]
+        direction LR
+        CLI["Interactive CLI"]:::surf
+        TGS["Telegram bot"]:::surf
+        ONE["One-shot mode"]:::surf
     end
 
-    subgraph AGENT[MohaMindAgent core]
-        LOOP[Chat loop<br/>tool-calling]:::core
-        PROMPT[Dynamic system prompt<br/>Router + Summaries]:::core
-        MEM[MemoryManager<br/>+ Privacy<br/>+ Provenance]:::core
-        SEARCH[Hybrid Search<br/>FTS5 + Semantic]:::core
+    subgraph AGENT["2 · MohaMindAgent core"]
+        direction LR
+        LOOP(["Chat loop<br>tool-calling"]):::core
+        PROMPT["Dynamic prompt<br>Router + Summaries"]:::core
+        SEARCH["Hybrid Search<br>FTS5 + Semantic"]:::core
+        MEM["MemoryManager<br>Privacy + Provenance"]:::core
+        LOOP --> PROMPT
+        LOOP --> SEARCH
+        LOOP --> MEM
     end
 
-    subgraph BRAINS[LLM providers]
-        ZAI[z.ai GLM]:::ext
-        OAI[OpenAI GPT]:::ext
-        VER[Verifier<br/>strategy=verify]:::ext
-        EMB[Embeddings<br/>openai / local]:::ext
+    subgraph BRAINS["3 · LLM providers"]
+        direction LR
+        ZAI["z.ai GLM"]:::ext
+        OAI["OpenAI GPT"]:::ext
+        VER["Verifier<br>optional"]:::ext
+        EMB["Embeddings<br>openai or local"]:::ext
     end
 
-    subgraph MCP[MCP tool servers]
-        MMS[memory_store]:::mcp
-        REM[reminders]:::mcp
-        GCAL[google_calendar]:::mcp
-        MSG[microsoft_graph]:::mcp
-        NOTE[notes + attention]:::mcp
+    subgraph MCPG["4 · MCP tool servers"]
+        direction LR
+        MMS["memory_store"]:::mcp
+        REM["reminders"]:::mcp
+        GCAL["google_calendar"]:::mcp
+        MSFT["microsoft_graph"]:::mcp
+        NOTE["notes + attention"]:::mcp
     end
 
-    subgraph SCHED[Scheduler · APScheduler]
-        BR[Daily briefing]:::sch
-        RE[Reminder engine<br/>every 30 min]:::sch
-        EX[Expiry guardian]:::sch
-        WR[Weekly review]:::sch
-        SP[Social pulse]:::sch
-        CON[Nightly consolidator]:::sch
+    subgraph SCHED["5 · Scheduler (APScheduler)"]
+        direction LR
+        BR["Daily briefing"]:::sch
+        RE["Reminder engine"]:::sch
+        EX["Expiry guardian"]:::sch
+        WR["Weekly review"]:::sch
+        SP["Social pulse"]:::sch
+        CON["Nightly<br>consolidator"]:::sch
     end
 
-    subgraph STORE[Local storage]
-        MD[(memory/*.md)]
-        DB[(sessions.db)]
-        HIST[(.history.jsonl)]
-        SEMIDX[(.semantic_index.db)]
-        CREDS[(credentials/)]
+    subgraph STORE["6 · Local storage"]
+        direction LR
+        MD[("memory<br>markdown")]:::mcp
+        DB[("sessions.db")]:::mcp
+        HIST[("history.jsonl")]:::mcp
+        SEMIDX[("semantic<br>index.db")]:::mcp
+        CREDS[("credentials/")]:::mcp
     end
 
-    CLI <--> LOOP
-    TGS <--> LOOP
-    ONE --> LOOP
-    LOOP --> PROMPT
-    PROMPT --> MEM
-    LOOP --> SEARCH
-    LOOP <--> ZAI
-    LOOP <--> OAI
-    LOOP -.if verify.-> VER
+    SURF ==> AGENT
+    AGENT ==> BRAINS
+    AGENT ==> MCPG
+    MCPG ==> STORE
+    SCHED ==> AGENT
+
     SEARCH --> EMB
-    LOOP --> MMS
-    LOOP --> REM
-    LOOP --> GCAL
-    LOOP --> MSG
-    LOOP --> NOTE
     MEM --> MD
     MEM --> HIST
-    MMS --> MD
-    SEARCH --> MD
     SEARCH --> SEMIDX
+    MMS --> MD
     GCAL --> CREDS
-    MSG --> CREDS
+    MSFT --> CREDS
     REM --> MD
-
-    SCHED --> MEM
-    SCHED --> TGS
-    CON -.reads.-> DB
-    CON -.reads.-> MD
-    BR -.reads.-> MD
-    RE -.reads.-> MD
-    EX -.reads.-> MD
-
     LOOP --> DB
+
+    SCHED -. "push alerts" .-> TGS
+    CON -. "reads daily log" .-> DB
 ```
 
 **The three loops you should remember:**
