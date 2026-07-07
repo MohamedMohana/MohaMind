@@ -77,6 +77,27 @@ class TestProvenance:
         assert result["category"] == "tasks"
         assert "second" not in memory.read("tasks")
 
+    def test_undo_restores_full_snapshot_for_large_memory(self, memory):
+        original = "# Family\n" + "\n".join(f"- durable fact {idx}" for idx in range(80))
+        memory.write("family", original)
+        memory.write("family", "bad overwrite")
+
+        result = memory.undo_last()
+
+        assert result is not None
+        restored = memory.read("family")
+        assert "bad overwrite" not in restored
+        assert "durable fact 79" in restored
+
+    def test_write_records_version_snapshots(self, memory):
+        memory.write("family", "first")
+        memory.write("family", "second")
+
+        events = memory.provenance.recent(limit=5)
+
+        assert events[-1].details.get("before_snapshot")
+        assert events[-1].details.get("after_snapshot")
+
     def test_undo_with_no_history_returns_none(self, memory):
         assert memory.undo_last() is None
 
@@ -242,9 +263,7 @@ class TestConsolidator:
 
         monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_enabled", True)
         monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_mode", "auto")
-        monkeypatch.setattr(
-            "moha_mind.scheduler.memory_consolidator.settings.consolidator_send_digest", False
-        )
+        monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_send_digest", False)
 
         payload = {
             "new_facts": [
@@ -275,9 +294,7 @@ class TestConsolidator:
 
         monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_enabled", True)
         monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_mode", "auto")
-        monkeypatch.setattr(
-            "moha_mind.scheduler.memory_consolidator.settings.consolidator_send_digest", False
-        )
+        monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_send_digest", False)
 
         payload = {
             "new_facts": [],
@@ -316,14 +333,10 @@ class TestConsolidator:
 
         monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_enabled", True)
         monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_mode", "hybrid")
-        monkeypatch.setattr(
-            "moha_mind.scheduler.memory_consolidator.settings.consolidator_send_digest", False
-        )
+        monkeypatch.setattr("moha_mind.scheduler.memory_consolidator.settings.consolidator_send_digest", False)
 
         payload = {
-            "new_facts": [
-                {"category": "finances", "content": "raise approved", "reason": "mentioned", "risk": "low"}
-            ],
+            "new_facts": [{"category": "finances", "content": "raise approved", "reason": "mentioned", "risk": "low"}],
             "observations": [],
             "conflicts": [],
             "summary": "",

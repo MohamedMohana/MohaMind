@@ -10,6 +10,7 @@ from moha_mind.config import settings
 from moha_mind.scheduler.daily_briefing import DailyBriefing
 from moha_mind.scheduler.expiry_guardian import ExpiryGuardian
 from moha_mind.scheduler.memory_consolidator import MemoryConsolidator
+from moha_mind.scheduler.reliability_guardian import ReliabilityGuardian
 from moha_mind.scheduler.reminder_engine import ReminderEngine
 from moha_mind.scheduler.social_pulse import SocialPulse
 from moha_mind.scheduler.weekly_review import WeeklyReview
@@ -41,6 +42,7 @@ class SchedulerJobs:
         self.social_pulse = SocialPulse(memory, bot)
         self.reminder_engine = ReminderEngine(memory, bot)
         self.memory_consolidator = MemoryConsolidator(agent, memory, bot)
+        self.reliability_guardian = ReliabilityGuardian(memory, bot)
 
     def setup(self) -> None:
         """Register all scheduled jobs."""
@@ -127,6 +129,17 @@ class SchedulerJobs:
                 replace_existing=True,
             )
             log.info(f"Scheduled: Memory Consolidator at {cons_hour:02d}:{cons_minute:02d} {tz}")
+
+        if getattr(settings, "reliability_guardian_enabled", True):
+            rel_hour, rel_minute = parse_time(getattr(settings, "reliability_guardian_time", "03:10"))
+            self.scheduler.add_job(
+                self.reliability_guardian.run,
+                CronTrigger(hour=rel_hour, minute=rel_minute, timezone=tz),
+                id="reliability_guardian",
+                name="Reliability Guardian",
+                replace_existing=True,
+            )
+            log.info(f"Scheduled: Reliability Guardian at {rel_hour:02d}:{rel_minute:02d} {tz}")
 
         self.scheduler.add_job(
             self._monthly_subscription_check,

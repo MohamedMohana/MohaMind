@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.utils.reminder_schedule import (
     COUNTDOWN_REPEATS,
+    RECURRING_REPEATS,
     format_list_field,
     initial_remind_at,
     normalize_bool,
@@ -34,6 +35,57 @@ def _format_times_ar(times: str) -> str:
 
 def _format_times_en(times: str) -> str:
     return ", ".join(format_time_en(time) for time in times.split(",") if time.strip())
+
+
+ONE_OFF_EVENT_TERMS = (
+    "meeting",
+    "manager",
+    "tomorrow",
+    "today",
+    "tonight",
+    "appointment",
+    "call",
+    "اجتماع",
+    "مدير",
+    "بكره",
+    "بكرا",
+    "غدا",
+    "غدًا",
+    "اليوم",
+    "الليلة",
+    "موعد",
+    "مكالمة",
+)
+
+RECURRING_EVENT_TERMS = (
+    "daily",
+    "weekly",
+    "monthly",
+    "annually",
+    "every",
+    "recurring",
+    "repeat",
+    "يومي",
+    "يومياً",
+    "يوميا",
+    "أسبوعي",
+    "اسبوعي",
+    "شهري",
+    "سنوي",
+    "كل ",
+    "كرر",
+)
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(term in lowered for term in terms)
+
+
+def _looks_like_one_off_event(text: str, event_at: str, repeat: str) -> bool:
+    if repeat not in RECURRING_REPEATS or not event_at:
+        return False
+    return _contains_any(text, ONE_OFF_EVENT_TERMS) and not _contains_any(text, RECURRING_EVENT_TERMS)
 
 
 class ReminderServer:
@@ -83,6 +135,10 @@ class ReminderServer:
         if event_at:
             parsed_event_at = parse_datetime_field(event_at, normalized_times[0] if normalized_times else "09:00")
             event_at = parsed_event_at.strftime("%Y-%m-%d %H:%M")
+        if _looks_like_one_off_event(text, event_at, repeat):
+            repeat = "none"
+        if repeat == "none" and not remind_at and event_at:
+            remind_at = event_at
 
         reminder = {
             "text": text,

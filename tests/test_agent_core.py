@@ -60,6 +60,16 @@ class TestAgentCoreTools:
         assert "Saved to profile" in result
 
     @pytest.mark.asyncio
+    async def test_handle_tool_save_memory_preserves_existing_content(self, agent):
+        agent.memory.write("family", "Existing family fact")
+
+        await agent.handle_tool_call("save_memory", {"category": "family", "content": "New family fact"})
+
+        content = agent.memory.read("family")
+        assert "Existing family fact" in content
+        assert "New family fact" in content
+
+    @pytest.mark.asyncio
     async def test_handle_tool_search_memory(self, agent):
         agent.memory.write("profile", "Name: Mohana")
         result = await agent.handle_tool_call("search_memory", {"query": "Mohana"})
@@ -167,6 +177,44 @@ class TestAgentCoreConversation:
         conv = agent._get_conversation("persisted_chat")
         assert len(conv) == 2
         assert conv[0]["content"] == "Remember the dentist"
+
+    def test_llm_history_keeps_large_tool_batch_intact(self, agent):
+        tool_calls = [
+            {
+                "id": f"call_{idx}",
+                "type": "function",
+                "function": {"name": "save_memory", "arguments": '{"category":"tasks","content":"x"}'},
+            }
+            for idx in range(25)
+        ]
+        conversation = [
+            {"role": "user", "content": "Save these reminders"},
+            {"role": "assistant", "content": None, "tool_calls": tool_calls},
+            *[
+                {
+                    "role": "tool",
+                    "tool_call_id": f"call_{idx}",
+                    "content": "Saved",
+                }
+                for idx in range(25)
+            ],
+        ]
+
+        messages = agent._build_llm_messages("system", conversation, max_messages=20)
+
+        assert messages[1]["role"] == "user"
+        assert messages[2]["role"] == "assistant"
+        assert len([message for message in messages if message["role"] == "tool"]) == 25
+
+    def test_llm_history_drops_orphan_tool_messages(self, agent):
+        conversation = [
+            {"role": "tool", "tool_call_id": "missing_call", "content": "orphan"},
+            {"role": "user", "content": "hello"},
+        ]
+
+        messages = agent._build_llm_messages("system", conversation)
+
+        assert [message["role"] for message in messages] == ["system", "user"]
 
     def test_recall_combines_memory_and_sessions(self, agent):
         agent.memory.write("profile", "Passport number: A123")

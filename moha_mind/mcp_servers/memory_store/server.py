@@ -31,7 +31,7 @@ class MemoryStoreServer:
         return f"Unknown tool: {tool_name}"
 
     async def _save(self, category: str, content: str) -> str:
-        self.memory.write(category, content)
+        self.memory.save_entry(category, content)
         return f"Saved to {category}"
 
     async def _read(self, category: str) -> str:

@@ -165,7 +165,7 @@ class MohaMindAgent:
                 "function": {
                     "name": "save_memory",
                     "description": (
-                        "Save information to a memory category. "
+                        "Append new information to a memory category without deleting existing memory. "
                         "Categories: profile, family, tasks, occasions, vehicle, finances, "
                         "health, home, documents, travel, learning, shopping, relationships, energy_log"
                     ),
@@ -432,7 +432,7 @@ class MohaMindAgent:
         try:
             match tool_name:
                 case "save_memory":
-                    self.memory.write(arguments["category"], arguments["content"])
+                    self.memory.save_entry(arguments["category"], arguments["content"])
                     connections = self.connected_memory.process_new_info(arguments["content"])
                     extra = ""
                     if connections:
@@ -571,9 +571,7 @@ class MohaMindAgent:
         lines = []
         for result in results:
             when = result.get("created_at", "").replace("T", " ")
-            lines.append(
-                f"[{result['chat_id']} | {result['role']} | {when}] {self._truncate_text(result['content'])}"
-            )
+            lines.append(f"[{result['chat_id']} | {result['role']} | {when}] {self._truncate_text(result['content'])}")
         return "\n".join(lines)
 
     def _route_memory_context(self, message: str) -> tuple[list[str] | None, dict[str, str] | None]:
@@ -656,6 +654,141 @@ class MohaMindAgent:
             self.conversations[chat_id] = [{"role": item["role"], "content": item["content"]} for item in persisted]
         return self.conversations[chat_id]
 
+    def _normalize_tool_call(self, tool_call: Any) -> dict | None:
+        if isinstance(tool_call, dict):
+            call_id = tool_call.get("id")
+            call_type = tool_call.get("type") or "function"
+            function = tool_call.get("function") or {}
+        else:
+            call_id = getattr(tool_call, "id", None)
+            call_type = getattr(tool_call, "type", "function") or "function"
+            function = getattr(tool_call, "function", None) or {}
+
+        if isinstance(function, dict):
+            name = function.get("name")
+            arguments = function.get("arguments") or "{}"
+        else:
+            name = getattr(function, "name", None)
+            arguments = getattr(function, "arguments", "{}") or "{}"
+
+        if not call_id or not name:
+            return None
+        if not isinstance(arguments, str):
+            arguments = json.dumps(arguments, ensure_ascii=False)
+
+        return {
+            "id": str(call_id),
+            "type": str(call_type),
+            "function": {
+                "name": str(name),
+                "arguments": arguments,
+            },
+        }
+
+    def _normalize_conversation_message(self, message: dict) -> dict | None:
+        role = message.get("role")
+
+        if role in ("user", "system"):
+            content = message.get("content")
+            if content is None:
+                return None
+            return {"role": role, "content": str(content)}
+
+        if role == "assistant":
+            tool_calls = [
+                normalized
+                for tool_call in (message.get("tool_calls") or [])
+                if (normalized := self._normalize_tool_call(tool_call)) is not None
+            ]
+            content = message.get("content")
+            if tool_calls:
+                return {"role": "assistant", "content": content, "tool_calls": tool_calls}
+            if content is None:
+                return None
+            return {"role": "assistant", "content": str(content)}
+
+        if role == "tool":
+            tool_call_id = message.get("tool_call_id")
+            if not tool_call_id:
+                return None
+            return {
+                "role": "tool",
+                "tool_call_id": str(tool_call_id),
+                "content": str(message.get("content") or ""),
+            }
+
+        return None
+
+    def _valid_conversation_units(self, conversation: list[dict]) -> list[list[dict]]:
+        normalized = [
+            message
+            for raw_message in conversation
+            if (message := self._normalize_conversation_message(raw_message)) is not None
+        ]
+        units: list[list[dict]] = []
+        index = 0
+
+        while index < len(normalized):
+            message = normalized[index]
+            if message["role"] == "assistant" and message.get("tool_calls"):
+                expected_ids = [tool_call["id"] for tool_call in message["tool_calls"]]
+                seen_ids: set[str] = set()
+                group = [message]
+                index += 1
+
+                while index < len(normalized) and normalized[index]["role"] == "tool":
+                    tool_message = normalized[index]
+                    tool_call_id = tool_message["tool_call_id"]
+                    if tool_call_id in expected_ids and tool_call_id not in seen_ids:
+                        group.append(tool_message)
+                        seen_ids.add(tool_call_id)
+                    index += 1
+
+                if len(seen_ids) == len(expected_ids):
+                    units.append(group)
+                continue
+
+            if message["role"] != "tool":
+                units.append([message])
+            index += 1
+
+        return units
+
+    def _trim_conversation_for_llm(self, conversation: list[dict], max_messages: int = 20) -> list[dict]:
+        turns: list[list[dict]] = []
+        current_turn: list[dict] = []
+
+        for unit in self._valid_conversation_units(conversation):
+            if unit[0]["role"] == "user":
+                if current_turn:
+                    turns.append(current_turn)
+                current_turn = [*unit]
+            else:
+                current_turn.extend(unit)
+
+        if current_turn:
+            turns.append(current_turn)
+
+        selected: list[list[dict]] = []
+        selected_count = 0
+        for turn in reversed(turns):
+            turn_size = len(turn)
+            if selected and selected_count + turn_size > max_messages:
+                break
+            selected.append(turn)
+            selected_count += turn_size
+
+        trimmed: list[dict] = []
+        for turn in reversed(selected):
+            trimmed.extend(turn)
+        return trimmed
+
+    def _build_llm_messages(self, system_prompt: str, conversation: list[dict], max_messages: int = 20) -> list[dict]:
+        return [
+            {"role": "system", "content": system_prompt},
+            *self._trim_conversation_for_llm(conversation, max_messages=max_messages),
+        ]
+
     def _switch_to_fallback(self) -> bool:
         """Switch to fallback LLM if available. Returns True if switched."""
         fallback = settings.fallback_llm_config
@@ -712,10 +845,7 @@ class MohaMindAgent:
         for round_num in range(max_tool_rounds):
             try:
                 response = await self._chat_completion_with_fallback(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        *conversation[-20:],
-                    ],
+                    messages=self._build_llm_messages(system_prompt, conversation),
                     tools=self.get_tools_schema(),
                     tool_choice="auto",
                     max_tokens=1500,
@@ -758,18 +888,18 @@ class MohaMindAgent:
             # disabling tools so the model must summarize what it already did.
             log.warning(f"Tool-call budget exhausted after {max_tool_rounds} rounds; forcing final reply.")
             try:
+                forced_messages = self._build_llm_messages(system_prompt, conversation)
+                forced_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Summarize the result of my previous request for me now, in the same language "
+                            "I used. Do not call any more tools."
+                        ),
+                    }
+                )
                 forced = await self._chat_completion_with_fallback(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        *conversation[-20:],
-                        {
-                            "role": "user",
-                            "content": (
-                                "Summarize the result of my previous request for me now, in the same language "
-                                "I used. Do not call any more tools."
-                            ),
-                        },
-                    ],
+                    messages=forced_messages,
                     max_tokens=800,
                     temperature=0.5,
                 )
@@ -791,7 +921,7 @@ class MohaMindAgent:
         )
 
         if len(conversation) > 50:
-            self.conversations[chat_id] = conversation[-30:]
+            self.conversations[chat_id] = self._trim_conversation_for_llm(conversation, max_messages=30)
 
         self.session_store.append_message(chat_id, "assistant", final_response)
         self.energy_tracker.log_interaction(message, len(final_response))
@@ -841,12 +971,10 @@ class MohaMindAgent:
             )
 
             try:
+                revision_messages = self._build_llm_messages(system_prompt, conversation)
+                revision_messages.append({"role": "user", "content": revise_prompt})
                 response = await self._chat_completion_with_fallback(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        *conversation[-20:],
-                        {"role": "user", "content": revise_prompt},
-                    ],
+                    messages=revision_messages,
                     max_tokens=1500,
                     temperature=0.5,
                 )

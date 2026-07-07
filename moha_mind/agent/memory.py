@@ -4,6 +4,7 @@ This is MohaMind's persistent brain. All personal data is stored as
 human-readable markdown files that can be directly edited by the user.
 """
 
+import hashlib
 import re
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,8 @@ MEMORY_FILES = {
     "relationships": "relationships.md",
     "energy_log": "energy_log.md",
 }
+
+MAX_MEMORY_VERSIONS_PER_CATEGORY = 200
 
 
 class MemoryManager:
@@ -78,6 +81,43 @@ class MemoryManager:
             return filepath.read_text(encoding="utf-8")
         return ""
 
+    def _version_category(self, category: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", category.replace("/", "_").replace("\\", "_")).strip("_") or "memory"
+
+    def _snapshot_content(self, category: str, content: str, label: str) -> str:
+        if not content:
+            return ""
+        version_dir = self.memory_path / ".versions" / self._version_category(category)
+        version_dir.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha1(content.encode("utf-8")).hexdigest()[:12]
+        stamp = now_ksa().strftime("%Y%m%dT%H%M%S%f%z")
+        path = version_dir / f"{stamp}-{label}-{digest}.md"
+        path.write_text(content, encoding="utf-8")
+        self._prune_versions(version_dir)
+        return path.relative_to(self.memory_path).as_posix()
+
+    def _prune_versions(self, version_dir: Path) -> None:
+        versions = sorted(version_dir.glob("*.md"), key=lambda path: path.stat().st_mtime)
+        excess = len(versions) - MAX_MEMORY_VERSIONS_PER_CATEGORY
+        for path in versions[: max(0, excess)]:
+            try:
+                path.unlink()
+            except OSError as exc:
+                log.debug(f"Could not prune memory version {path}: {exc}")
+
+    def _read_snapshot(self, relative_path: str | None) -> str:
+        if not relative_path:
+            return ""
+        snapshot_path = (self.memory_path / relative_path).resolve()
+        versions_root = (self.memory_path / ".versions").resolve()
+        try:
+            snapshot_path.relative_to(versions_root)
+        except ValueError:
+            return ""
+        if not snapshot_path.is_file():
+            return ""
+        return snapshot_path.read_text(encoding="utf-8")
+
     def write(self, category: str, content: str, *, action: str = "write", details: Optional[dict] = None) -> None:
         """Overwrite a memory file.
 
@@ -89,6 +129,13 @@ class MemoryManager:
 
         before = filepath.read_text(encoding="utf-8") if filepath.exists() else ""
         new_content = content.strip() + "\n"
+        record_details = dict(details or {})
+        before_snapshot = self._snapshot_content(safe_category, before, "before") if before != new_content else ""
+        after_snapshot = self._snapshot_content(safe_category, new_content, "after") if before != new_content else ""
+        if before_snapshot:
+            record_details["before_snapshot"] = before_snapshot
+        if after_snapshot:
+            record_details["after_snapshot"] = after_snapshot
         filepath.parent.mkdir(parents=True, exist_ok=True)
         filepath.write_text(new_content, encoding="utf-8")
 
@@ -98,7 +145,7 @@ class MemoryManager:
             before=before,
             after=new_content,
             source=self._write_source,
-            details=details or {},
+            details=record_details,
         )
         log.info(f"Memory updated: {category}")
 
@@ -108,6 +155,18 @@ class MemoryManager:
         if existing and not existing.endswith("\n"):
             existing += "\n"
         self.write(category, existing + content, action="append", details={"added_chars": len(content)})
+
+    def save_entry(self, category: str, content: str) -> bool:
+        clean_content = (content or "").strip()
+        if not clean_content:
+            return False
+
+        existing = self.read(category)
+        if clean_content in existing:
+            return False
+
+        self.append_to_section(category, "Saved Memory", clean_content)
+        return True
 
     def append_to_section(self, category: str, section_header: str, line: str) -> None:
         """Append a line under a specific ## section in a memory file."""
@@ -207,6 +266,7 @@ class MemoryManager:
         filepath = self.memory_path / "notes" / f"{safe_title}.md"
         if filepath.exists():
             before = filepath.read_text(encoding="utf-8")
+            snapshot = self._snapshot_content(f"notes/{safe_title}", before, "deleted")
             filepath.unlink()
             self.provenance.record(
                 action="delete_note",
@@ -214,7 +274,7 @@ class MemoryManager:
                 before=before,
                 after="",
                 source=self._write_source,
-                details={"title": title},
+                details={"title": title, "before_snapshot": snapshot},
             )
             log.info(f"Deleted note: {safe_title}")
             return True
@@ -446,8 +506,10 @@ class MemoryManager:
         if not content:
             content = "# Reminders\n\n## Scheduled\n"
 
+        clean_text = " / ".join((text or "").splitlines()).strip()
+        clean_notes = " / ".join((notes or "").splitlines()).strip()
         reminder = {
-            "text": text.strip(),
+            "text": clean_text,
             "done": False,
             "remind_at": remind_at.strip(),
             "event_at": (event_at or "").strip(),
@@ -457,7 +519,7 @@ class MemoryManager:
             "skip_weekends": "true" if str(skip_weekends).lower() == "true" or skip_weekends is True else "false",
             "interval_days": str(interval_days).strip() if interval_days else "",
             "lead_days": str(lead_days).strip() if lead_days else "",
-            "notes": notes.strip(),
+            "notes": clean_notes,
             "source": source.strip() or "agent",
         }
         line = self._format_reminder_line(reminder)
@@ -576,12 +638,13 @@ class MemoryManager:
             safe_title = category.split("/", 1)[1]
             filepath = self.memory_path / "notes" / f"{safe_title}.md"
             filepath.parent.mkdir(parents=True, exist_ok=True)
-            filepath.write_text(event.before_snippet, encoding="utf-8")
+            restored = self._read_snapshot(event.details.get("before_snapshot")) or event.before_snippet
+            filepath.write_text(restored, encoding="utf-8")
             self.provenance.record(
                 action="undo_delete_note",
                 category=category,
                 before="",
-                after=event.before_snippet,
+                after=restored,
                 source="undo",
                 details={"restored_event": event.event_id},
             )
@@ -590,12 +653,14 @@ class MemoryManager:
         filename = MEMORY_FILES.get(category, f"{category}.md")
         filepath = self.memory_path / filename
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        filepath.write_text(event.before_snippet, encoding="utf-8")
+        current = filepath.read_text(encoding="utf-8") if filepath.exists() else ""
+        restored = self._read_snapshot(event.details.get("before_snapshot")) or event.before_snippet
+        filepath.write_text(restored, encoding="utf-8")
         self.provenance.record(
             action=f"undo_{event.action}",
             category=category,
-            before=event.after_snippet,
-            after=event.before_snippet,
+            before=current,
+            after=restored,
             source="undo",
             details={"restored_event": event.event_id},
         )

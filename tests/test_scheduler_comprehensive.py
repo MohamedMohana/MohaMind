@@ -114,6 +114,36 @@ class TestReminderEngineExtended:
         assert any(r["text"] == "Daily vitamins" and r["repeat"] == "daily" and not r["done"] for r in reminders)
 
     @pytest.mark.asyncio
+    async def test_stale_one_off_recurring_meeting_is_completed_without_reschedule(self, tmp_memory):
+        now = now_ksa()
+        remind_at = (now - timedelta(days=1, minutes=5)).strftime("%Y-%m-%d %H:%M")
+        event_at = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
+        tmp_memory.add_reminder("Meeting with manager tomorrow", remind_at=remind_at, event_at=event_at, repeat="daily")
+
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        await engine.check_and_remind()
+
+        bot.send_message.assert_not_called()
+        reminders = tmp_memory.get_reminder_section(include_completed=True)
+        assert any(r["text"] == "Meeting with manager tomorrow" and r["done"] for r in reminders)
+
+    @pytest.mark.asyncio
+    async def test_due_one_off_recurring_meeting_fires_once_and_completes(self, tmp_memory):
+        now = now_ksa()
+        remind_at = (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M")
+        event_at = now.strftime("%Y-%m-%d %H:%M")
+        tmp_memory.add_reminder("Meeting with manager tomorrow", remind_at=remind_at, event_at=event_at, repeat="daily")
+
+        bot = _make_mock_bot()
+        engine = ReminderEngine(tmp_memory, bot)
+        await engine.check_and_remind()
+
+        bot.send_message.assert_called()
+        reminders = tmp_memory.get_reminder_section(include_completed=True)
+        assert any(r["text"] == "Meeting with manager tomorrow" and r["done"] for r in reminders)
+
+    @pytest.mark.asyncio
     async def test_multi_time_daily_reminder_reschedules_to_next_slot(self, tmp_memory):
         now = now_ksa()
         fired_at = (now - timedelta(minutes=5)).replace(second=0, microsecond=0, tzinfo=None)
@@ -160,9 +190,10 @@ class TestSocialPulseExtended:
 
     @pytest.mark.asyncio
     async def test_no_nudges_recent_contact(self, tmp_memory):
+        recent = (now_ksa() - timedelta(days=7)).strftime("%Y-%m-%d")
         tmp_memory.write(
             "relationships",
-            "### Ahmed\n- Last contacted: 2026-04-07\n- Contact frequency: monthly\n",
+            f"### Ahmed\n- Last contacted: {recent}\n- Contact frequency: monthly\n",
         )
         bot = _make_mock_bot()
         pulse = SocialPulse(tmp_memory, bot)

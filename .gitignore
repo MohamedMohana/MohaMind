@@ -31,11 +31,14 @@ memory/*
 !memory/templates/**
 
 # IDE
+.codex
+.codex/
 .vscode/
 .idea/
 *.swp
 *.swo
 .zed/
+**/.ipynb_checkpoints/
 
 # OS
 .DS_Store

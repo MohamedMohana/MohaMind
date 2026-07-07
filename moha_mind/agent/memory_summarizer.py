@@ -17,6 +17,8 @@ heuristic summary built from headings + first bullets.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,7 +55,7 @@ def _heuristic_summary(category: str, content: str, max_chars: int = MAX_SUMMARY
 
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("## "):
+        if re.match(r"^#{2,6}\s+", stripped):
             if current_lines:
                 sections.append((current_name, current_lines))
             current_name = stripped.lstrip("# ").strip()
@@ -64,6 +66,8 @@ def _heuristic_summary(category: str, content: str, max_chars: int = MAX_SUMMARY
         if stripped.startswith("<!--") or not stripped:
             continue
         if stripped.startswith("- ") or stripped.startswith("* "):
+            current_lines.append(stripped[2:].strip())
+        elif stripped.startswith("• "):
             current_lines.append(stripped[2:].strip())
         elif stripped:
             current_lines.append(stripped)
@@ -103,16 +107,21 @@ class MemorySummarizer:
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", category)
         return self.dir / f"{safe}.md"
 
+    def meta_path(self, category: str) -> Path:
+        safe = re.sub(r"[^a-zA-Z0-9_-]", "_", category)
+        return self.dir / f"{safe}.meta.json"
+
     def get_summary(self, category: str) -> str:
         """Return the cached summary, regenerating if the source changed."""
         source = self._source_path(category)
         if not source.exists():
             return ""
         cache = self.summary_path(category)
-        if cache.exists() and cache.stat().st_mtime >= source.stat().st_mtime:
+        source_text = source.read_text(encoding="utf-8")
+        if cache.exists() and self._cache_matches_source(category, source_text):
             return cache.read_text(encoding="utf-8").strip()
-        text = _heuristic_summary(category, source.read_text(encoding="utf-8"))
-        self._write_cache(category, text)
+        text = _heuristic_summary(category, source_text)
+        self._write_cache(category, text, source_text=source_text)
         return text
 
     def get_summaries(self, categories: list[str]) -> dict[str, str]:
@@ -122,6 +131,9 @@ class MemorySummarizer:
         path = self.summary_path(category)
         if path.exists():
             path.unlink()
+        meta = self.meta_path(category)
+        if meta.exists():
+            meta.unlink()
 
     async def refresh_async(self, category: str) -> str:
         """Regenerate a summary, preferring the LLM when available."""
@@ -132,7 +144,7 @@ class MemorySummarizer:
         text = await self._llm_summary(category, content) if self.llm_client else ""
         if not text:
             text = _heuristic_summary(category, content)
-        self._write_cache(category, text)
+        self._write_cache(category, text, source_text=content)
         return text
 
     async def refresh_all_async(self) -> dict[str, str]:
@@ -152,10 +164,28 @@ class MemorySummarizer:
         filename = MEMORY_FILES.get(category, f"{category}.md")
         return self.memory.memory_path / filename
 
-    def _write_cache(self, category: str, text: str) -> None:
+    def _source_fingerprint(self, content: str) -> str:
+        return hashlib.sha1(content.encode("utf-8")).hexdigest()
+
+    def _cache_matches_source(self, category: str, source_text: str) -> bool:
+        meta = self.meta_path(category)
+        if not meta.exists():
+            return False
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return data.get("source_hash") == self._source_fingerprint(source_text)
+
+    def _write_cache(self, category: str, text: str, source_text: str | None = None) -> None:
         path = self.summary_path(category)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text.strip() + "\n", encoding="utf-8")
+        if source_text is not None:
+            self.meta_path(category).write_text(
+                json.dumps({"source_hash": self._source_fingerprint(source_text)}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
 
     async def _llm_summary(self, category: str, content: str) -> str:
         if not self.llm_client:

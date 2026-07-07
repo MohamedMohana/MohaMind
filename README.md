@@ -783,6 +783,9 @@ Most users only need these values:
 | `WEEKLY_REVIEW_TIME` | no | weekly review time |
 | `MEMORY_DIR` | no | defaults to `./memory` |
 | `TELEGRAM_ALLOW_DESTRUCTIVE` | no | set to `false` to lock down `/forget`, `/untask`, `/delete_note` |
+| `RELIABILITY_GUARDIAN_ENABLED` | no | daily memory integrity scan and local backups |
+| `RELIABILITY_GUARDIAN_TIME` | no | when to run the reliability scan |
+| `MEMORY_BACKUP_RETENTION_DAYS` | no | how long to keep local memory backups |
 
 Use `.env.example` as the full reference.
 

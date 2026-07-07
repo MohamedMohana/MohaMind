@@ -101,6 +101,13 @@ class Settings(BaseSettings):
     consolidator_time: str = "02:30"
     consolidator_send_digest: bool = True
 
+    # ----- Reliability guardian -----
+    reliability_guardian_enabled: bool = True
+    reliability_guardian_time: str = "03:10"
+    reliability_send_digest: bool = True
+    memory_backup_retention_days: int = 30
+    memory_backup_max_count: int = 60
+
     # ----- Privacy tiers (cross-cutting) -----
     # Comma-separated category names. Sensitive categories:
     #   - are redacted before being sent to the verifier

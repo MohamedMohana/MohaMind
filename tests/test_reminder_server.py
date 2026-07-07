@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 import pytest
 
 from moha_mind.mcp_servers.reminders.server import ReminderServer
+from moha_mind.utils.timezone import now_ksa
 
 
 class TestReminderServer:
@@ -43,6 +46,22 @@ class TestReminderServer:
         reminder = tmp_memory.get_reminder_section()[0]
         assert reminder["weekdays"] == "wed"
         assert reminder["remind_at"].endswith("09:00")
+
+    @pytest.mark.asyncio
+    async def test_one_off_meeting_is_not_left_recurring(self, tmp_memory):
+        server = ReminderServer(tmp_memory)
+        event_at = (now_ksa() + timedelta(days=1)).strftime("%Y-%m-%d 09:00")
+
+        await server._add_reminder(
+            text="Meeting tomorrow with my manager",
+            event_at=event_at,
+            repeat="daily",
+            times=["09:00"],
+        )
+
+        reminder = tmp_memory.get_reminder_section()[0]
+        assert reminder["repeat"] == "none"
+        assert reminder["remind_at"] == event_at
 
     @pytest.mark.asyncio
     async def test_add_annual_countdown_reminder(self, tmp_memory):

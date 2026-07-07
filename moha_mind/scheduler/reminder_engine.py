@@ -8,7 +8,7 @@ from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.telegram_bot.formatters import truncate_message
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.occasions import upcoming_occasions
-from moha_mind.utils.reminder_schedule import next_reminder_after
+from moha_mind.utils.reminder_schedule import RECURRING_REPEATS, next_reminder_after
 from moha_mind.utils.timezone import format_datetime_ar, now_ksa
 
 
@@ -25,6 +25,70 @@ def _occasion_day_phrase(days: int) -> str:
 def _needs_daily_countdown(kind: str, source_line: str) -> bool:
     lowered = source_line.lower()
     return kind == "anniversary" or any(term in lowered for term in ("marriage", "wedding", "زواج"))
+
+
+ONE_OFF_EVENT_TERMS = (
+    "meeting",
+    "manager",
+    "tomorrow",
+    "today",
+    "tonight",
+    "appointment",
+    "call",
+    "اجتماع",
+    "مدير",
+    "بكره",
+    "بكرا",
+    "غدا",
+    "غدًا",
+    "اليوم",
+    "الليلة",
+    "موعد",
+    "مكالمة",
+)
+
+RECURRING_EVENT_TERMS = (
+    "daily",
+    "weekly",
+    "monthly",
+    "annually",
+    "every",
+    "recurring",
+    "repeat",
+    "يومي",
+    "يومياً",
+    "يوميا",
+    "أسبوعي",
+    "اسبوعي",
+    "شهري",
+    "سنوي",
+    "كل ",
+    "كرر",
+)
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(term in lowered for term in terms)
+
+
+def _looks_like_one_off_event(reminder: dict) -> bool:
+    repeat = reminder.get("repeat", "none")
+    if repeat not in RECURRING_REPEATS or not reminder.get("event_at"):
+        return False
+    text = reminder.get("text", "")
+    return _contains_any(text, ONE_OFF_EVENT_TERMS) and not _contains_any(text, RECURRING_EVENT_TERMS)
+
+
+def _event_date_before_today(reminder: dict, now: datetime) -> bool:
+    event_at = reminder.get("event_at", "")
+    if not event_at:
+        return False
+    try:
+        event_dt = datetime.strptime(event_at, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return False
+    return event_dt.date() < now.date()
 
 
 class ReminderEngine:
@@ -104,6 +168,11 @@ class ReminderEngine:
             if remind_dt > now or reminder_key in self._sent_reminders:
                 continue
 
+            one_off_recurring = _looks_like_one_off_event(reminder)
+            if one_off_recurring and _event_date_before_today(reminder, now):
+                self.memory.complete_reminder(reminder["text"], remind_at=remind_at)
+                continue
+
             event_suffix = (
                 f"\nوقت الحدث: {format_datetime_ar(reminder['event_at'])}" if reminder.get("event_at") else ""
             )
@@ -112,7 +181,9 @@ class ReminderEngine:
             self._sent_reminders.add(reminder_key)
 
             repeat = reminder.get("repeat", "none")
-            if repeat and repeat != "none":
+            if one_off_recurring:
+                self.memory.complete_reminder(reminder["text"], remind_at=remind_at)
+            elif repeat and repeat != "none":
                 next_due = next_reminder_after(reminder, remind_dt.replace(tzinfo=None), reference=now)
                 if not next_due:
                     self.memory.complete_reminder(reminder["text"], remind_at=remind_at)

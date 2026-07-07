@@ -114,6 +114,15 @@ class TestMemoryManager:
         assert "Call Ahmad" in content
         assert "remind_at:2026-04-13 09:00" in content
 
+    def test_add_reminder_sanitizes_multiline_text(self, memory):
+        memory.write("reminders", "# Reminders\n\n## Scheduled\n")
+        memory.add_reminder("Line one\nLine two", remind_at="2026-04-13 09:00")
+
+        content = memory.read("reminders")
+
+        assert "Line one / Line two" in content
+        assert "- [ ] Line one\nLine two" not in content
+
     def test_add_flexible_reminder_fields(self, memory):
         memory.write("reminders", "# Reminders\n\n## Scheduled\n")
         memory.add_reminder(

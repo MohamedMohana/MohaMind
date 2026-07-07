@@ -1,5 +1,7 @@
 """Comprehensive tests for all MCP servers."""
 
+from datetime import timedelta
+
 import pytest
 
 from moha_mind.mcp_servers.family.server import FamilyServer
@@ -7,6 +9,7 @@ from moha_mind.mcp_servers.life_tracker.server import LifeTrackerServer
 from moha_mind.mcp_servers.memory_store.server import MemoryStoreServer
 from moha_mind.mcp_servers.social.server import SocialServer
 from moha_mind.mcp_servers.tasks.server import TaskServer
+from moha_mind.utils.timezone import now_ksa
 
 
 class TestMemoryStoreServer:
@@ -16,6 +19,17 @@ class TestMemoryStoreServer:
         result = await server._save(category="profile", content="Hello World")
         assert "Saved to profile" in result
         assert "Hello World" in tmp_memory.read("profile")
+
+    @pytest.mark.asyncio
+    async def test_save_preserves_existing_memory(self, tmp_memory):
+        tmp_memory.write("family", "Existing family fact")
+        server = MemoryStoreServer(tmp_memory)
+
+        await server._save(category="family", content="New family fact")
+
+        content = tmp_memory.read("family")
+        assert "Existing family fact" in content
+        assert "New family fact" in content
 
     @pytest.mark.asyncio
     async def test_read(self, tmp_memory):
@@ -468,7 +482,8 @@ class TestSocialServerExtended:
 
     @pytest.mark.asyncio
     async def test_get_neglected_all_caught_up(self, tmp_memory):
-        tmp_memory.write("relationships", "### Ahmed\n- Last contacted: 2026-04-07\n")
+        recent = (now_ksa() - timedelta(days=7)).strftime("%Y-%m-%d")
+        tmp_memory.write("relationships", f"### Ahmed\n- Last contacted: {recent}\n")
         server = SocialServer(tmp_memory)
         result = await server._get_neglected(days_threshold=30)
         assert "caught up" in result.lower()
