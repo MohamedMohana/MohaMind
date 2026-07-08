@@ -5,17 +5,8 @@ Checks when you last contacted people and sends reminders.
 
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.telegram_bot.bot import MohaMindBot
+from moha_mind.utils.i18n import days_ago_phrase, t
 from moha_mind.utils.logging_config import log
-
-
-def _days_ago(days: int) -> str:
-    if days == 1:
-        return "منذ يوم واحد"
-    if days == 2:
-        return "منذ يومين"
-    if 3 <= days <= 10:
-        return f"منذ {days} أيام"
-    return f"منذ {days} يومًا"
 
 
 class SocialPulse:
@@ -87,13 +78,13 @@ class SocialPulse:
             log.info("Social Pulse: all caught up!")
             return
 
-        lines = ["📱 نبض العلاقات - حان وقت التواصل\n"]
+        lines = [t("social.header") + "\n"]
         for person, days, threshold in sorted(overdue, key=lambda x: x[1], reverse=True)[:5]:
-            lines.append(f"  - {person}: آخر تواصل {_days_ago(days)}")
+            lines.append(t("social.last_contact", person=person, phrase=days_ago_phrase(days)))
             if days > 60:
-                lines.append("    💡 مر وقت طويل. قد يكون مناسبًا إرسال رسالة أو ترتيب مكالمة.")
+                lines.append(t("social.long_time"))
 
-        lines.append("\nاستخدم \u200e/social لرؤية التفاصيل أو أخبرني بتسجيل تواصل جديد.")
+        lines.append("\n" + t("social.footer"))
 
         from moha_mind.telegram_bot.formatters import truncate_message
 

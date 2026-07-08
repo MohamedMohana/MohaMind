@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     ms_token_path: str = "./credentials/ms_token.json"
 
     timezone: str = "Asia/Riyadh"
+    # Language for proactive messages (briefings, reminders, alerts) and the
+    # instruction sent with Telegram commands: "ar" or "en". Free-form chat
+    # always mirrors whatever language the user writes in.
+    agent_language: str = "ar"
     morning_briefing_time: str = "08:00"
     weekly_review_day: str = "sun"
     weekly_review_time: str = "19:00"

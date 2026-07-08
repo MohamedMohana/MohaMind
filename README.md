@@ -9,6 +9,7 @@
 Your Personal Agent · Always On · Always Remembering
 ```
 
+[![CI](https://github.com/MohamedMohana/MohaMind/actions/workflows/ci.yml/badge.svg)](https://github.com/MohamedMohana/MohaMind/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
 
@@ -306,6 +307,13 @@ Examples:
 - passports and expiring documents
 
 ## Arabic And Dialect Support
+
+MohaMind is fully bilingual:
+
+- **Free-form chat** always mirrors the language you write in — Arabic in, Arabic out; English in, English out.
+- **Proactive messages** (morning briefings, reminder pushes, expiry alerts, weekly reviews, integrity reports) follow `AGENT_LANGUAGE` — `ar` (default) or `en`, chosen during `mohamind setup`.
+
+All the strings live in one catalog ([moha_mind/utils/i18n.py](./moha_mind/utils/i18n.py)), so adding another language is a single-file contribution.
 
 MohaMind does not require formal Arabic.
 
@@ -787,6 +795,7 @@ Most users only need these values:
 | `ZAI_API_KEY` | if using z.ai | z.ai API key |
 | `OPENAI_API_KEY` | if using OpenAI | OpenAI API key |
 | `TIMEZONE` | yes | your local timezone |
+| `AGENT_LANGUAGE` | no | `ar` (default) or `en` — language of briefings, reminders, and alerts |
 | `MORNING_BRIEFING_TIME` | no | daily briefing time |
 | `WEEKLY_REVIEW_DAY` | no | weekly review day |
 | `WEEKLY_REVIEW_TIME` | no | weekly review time |
@@ -922,7 +931,7 @@ MohaMind/
 │   └── utils/                timezone, Arabic normalization, schedules
 ├── memory/                   Markdown memory + sessions.db + audit log
 ├── credentials/              optional Google / Microsoft OAuth
-└── tests/                    547 tests covering agent, memory, scheduler
+└── tests/                    561 tests covering agent, memory, scheduler
 ```
 
 ## Troubleshooting
@@ -937,7 +946,7 @@ MohaMind/
 
 Current local verification:
 
-- `uv run pytest -q` -> `547 passed`
+- `uv run pytest -q` -> `561 passed`
 - `uv run ruff check .` -> clean
 
 ## Development

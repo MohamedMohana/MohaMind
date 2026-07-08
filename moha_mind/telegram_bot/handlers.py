@@ -12,6 +12,7 @@ from moha_mind.agent.core import MohaMindAgent
 from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
 from moha_mind.config import settings
 from moha_mind.telegram_bot.formatters import reply_markdown, truncate_message
+from moha_mind.utils.i18n import agent_language, t
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.timezone import ksa_time_str
 
@@ -19,19 +20,14 @@ LTR = "\u200e"
 
 PENDING_ACTION_TTL_SECONDS = 5 * 60
 
-ARABIC_AGENT_INSTRUCTION = (
-    "أجب المستخدم باللغة العربية الواضحة والمهنية، بنبرة ودودة ومباشرة. "
-    "استخدم عناوين قصيرة ونقاطًا عند الحاجة، ولا تستخدم الإنجليزية إلا لأسماء الأوامر أو المصطلحات التقنية. "
-    "عند ذكر وقت بصيغة 12 ساعة، اكتب ص أو م بوضوح مثل 1:30 م أو 5:00 ص."
-)
-
 
 def command(name: str) -> str:
     return f"{LTR}/{name}"
 
 
-def arabic_agent_request(request: str) -> str:
-    return f"{ARABIC_AGENT_INSTRUCTION}\n\n{request}"
+def agent_request(request: str) -> str:
+    """Prepend the AGENT_LANGUAGE reply instruction to a command request."""
+    return f"{t('agent.instruction')}\n\n{request}"
 
 
 def arabic_days_phrase(days: int) -> str:
@@ -226,7 +222,7 @@ class Handlers:
     async def today(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /today command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض جدول اليوم كاملًا: المهام، التقويم، المواعيد، وأي شيء مهم يحتاج انتباهي."),
+            agent_request(t("req.today")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -235,7 +231,7 @@ class Handlers:
     async def tomorrow(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /tomorrow command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض جدول الغد: المهام، التقويم، المواعيد، وأي شيء مهم يحتاج انتباهي."),
+            agent_request(t("req.tomorrow")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -249,10 +245,10 @@ class Handlers:
             await self._reply(update, "لا توجد مهام نشطة الآن. أمورك مرتبة 🎉")
             return
         lines = ["📋 المهام النشطة:"]
-        for i, t in enumerate(active, 1):
-            due_info = f" (الموعد: {LTR}{t['due']})" if t["due"] else ""
-            priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
-            lines.append(f"{priority_emoji} {i}. {t['text']}{due_info}")
+        for i, task in enumerate(active, 1):
+            due_info = f" (الموعد: {LTR}{task['due']})" if task["due"] else ""
+            priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(task["priority"], "⚪")
+            lines.append(f"{priority_emoji} {i}. {task['text']}{due_info}")
         await self._reply(update, "\n".join(lines))
 
     async def reminders(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -267,7 +263,7 @@ class Handlers:
                 pass
 
         server = ReminderServer(self.memory)
-        response = await server._list_reminders(days_ahead=days, language="ar")
+        response = await server._list_reminders(days_ahead=days, language=agent_language())
         for part in truncate_message(response):
             await self._reply(update, part)
 
@@ -278,12 +274,7 @@ class Handlers:
             return
         reminder_text = " ".join(context.args)
         response = await self.agent.chat(
-            arabic_agent_request(
-                "أنشئ تذكيرًا موقّتًا لهذا الطلب. افهم العربية العامية واللهجة السعودية/الخليجية طبيعيًا. "
-                "حوّل أي تاريخ أو وقت نسبي إلى وقت محدد بتوقيت Asia/Riyadh، واستخدم أدوات التذكير المناسبة:\n"
-                "للتكرار المرن استخدم حقول times وweekdays وskip_weekends وinterval_days وlead_days عند الحاجة.\n"
-                f"{reminder_text}"
-            ),
+            agent_request(t("req.remind", tz=settings.timezone, text=reminder_text)),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -300,7 +291,7 @@ class Handlers:
             return
         task_text = " ".join(context.args)
         response = await self.agent.chat(
-            arabic_agent_request(f"أضف هذه المهمة:\n{task_text}"),
+            agent_request(t("req.add_task", text=task_text)),
             chat_id=str(update.effective_chat.id),
         )
         await self._reply(update, f"✅ {response}")
@@ -340,7 +331,7 @@ class Handlers:
     async def car(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /car command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض حالة السيارة: الصيانة القادمة، الاستمارة، التأمين، وأي تنبيه مهم."),
+            agent_request(t("req.car")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -349,7 +340,7 @@ class Handlers:
     async def pay(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /pay command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض الفواتير والمدفوعات القادمة، بما في ذلك الاشتراكات التي ستتجدد قريبًا."),
+            agent_request(t("req.pay")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -358,7 +349,7 @@ class Handlers:
     async def health(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /health command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض تذكيرات الصحة: الأدوية، مواعيد الأطباء القادمة، وحالة النادي أو التمارين."),
+            agent_request(t("req.health")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -367,7 +358,7 @@ class Handlers:
     async def family(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /family command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض تحديثات العائلة: الحمل، أحداث الأطفال، والمواعيد القادمة."),
+            agent_request(t("req.family")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -376,7 +367,7 @@ class Handlers:
     async def social(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /social command."""
         response = await self.agent.chat(
-            arabic_agent_request("من يحتاج أن أتواصل معه؟ راجع العلاقات وجهّز ملخصًا مختصرًا للأشخاص المهمين."),
+            agent_request(t("req.social")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -413,7 +404,7 @@ class Handlers:
             return
         text = " ".join(context.args)
         response = await self.agent.chat(
-            arabic_agent_request(f"احفظ هذه المعلومة في التصنيف المناسب من الذاكرة:\n{text}"),
+            agent_request(t("req.remember", text=text)),
             chat_id=str(update.effective_chat.id),
         )
         await self._reply(update, f"🧠 {response}")
@@ -695,7 +686,7 @@ class Handlers:
     async def calendar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /calendar command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض مواعيد اليوم من تقويم Google وتقويم Microsoft، مع ترتيب واضح حسب الوقت."),
+            agent_request(t("req.calendar")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -741,7 +732,7 @@ class Handlers:
     async def week(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /week command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض نظرة عامة على هذا الأسبوع: كل الأحداث، المهام ذات المواعيد، والتواريخ المهمة."),
+            agent_request(t("req.week")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):
@@ -750,7 +741,7 @@ class Handlers:
     async def radar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /radar command."""
         response = await self.agent.chat(
-            arabic_agent_request("اعرض رادار الانتباه لما يحتاج متابعة خلال 30 يومًا، ورتّبه حسب الأولوية."),
+            agent_request(t("req.radar")),
             chat_id=str(update.effective_chat.id),
         )
         for part in truncate_message(response):

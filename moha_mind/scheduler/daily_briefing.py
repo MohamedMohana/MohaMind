@@ -4,6 +4,7 @@ from moha_mind.agent.core import MohaMindAgent
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.telegram_bot.formatters import truncate_message
+from moha_mind.utils.i18n import agent_language, t
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.timezone import ksa_date_display, ksa_date_display_ar
 
@@ -21,7 +22,8 @@ class DailyBriefing:
         try:
             briefing = await self.agent.generate_briefing()
 
-            header = f"🌅 صباح الخير. {ksa_date_display_ar()}\n\n"
+            date_display = ksa_date_display_ar() if agent_language() == "ar" else ksa_date_display()
+            header = t("briefing.header", date=date_display) + "\n\n"
             full_message = header + briefing
 
             for part in truncate_message(full_message):
@@ -33,8 +35,6 @@ class DailyBriefing:
         except Exception as e:
             log.error(f"Morning briefing failed: {e}")
             try:
-                await self.bot.send_message(
-                    "صباح الخير. واجهت مشكلة أثناء إعداد الملخص الكامل اليوم. اكتب لي وسأعطيك ملخصًا سريعًا."
-                )
+                await self.bot.send_message(t("briefing.push_error"))
             except Exception:
                 pass

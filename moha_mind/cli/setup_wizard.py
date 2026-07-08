@@ -147,6 +147,14 @@ SETUP_STEPS = [
         "description": "Your IANA timezone",
     },
     {
+        "key": "AGENT_LANGUAGE",
+        "label": "Agent Language",
+        "category": "schedule",
+        "choices": ["ar", "en"],
+        "default": "ar",
+        "description": "Language for briefings, reminders, and proactive alerts (chat always mirrors you)",
+    },
+    {
         "key": "MORNING_BRIEFING_TIME",
         "label": "Morning Briefing Time",
         "category": "schedule",

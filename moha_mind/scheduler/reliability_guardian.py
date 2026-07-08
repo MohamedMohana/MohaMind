@@ -14,6 +14,7 @@ from typing import Any
 from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
 from moha_mind.config import settings
 from moha_mind.telegram_bot.formatters import truncate_message
+from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.reminder_schedule import DATETIME_FORMAT, RECURRING_REPEATS
 from moha_mind.utils.timezone import now_ksa
@@ -131,19 +132,19 @@ class ReliabilityGuardian:
         return report
 
     def format_report(self, report: IntegrityReport) -> str:
-        status = "✅ سليم" if report.ok else "⚠️ يحتاج انتباه"
-        lines = [f"🛡️ تقرير سلامة MohaMind — {status}"]
+        status = t("guardian.ok") if report.ok else t("guardian.attention")
+        lines = [t("guardian.title", status=status)]
         if report.critical:
-            lines.append("\nأمور خطيرة:")
+            lines.append("\n" + t("guardian.critical"))
             lines.extend(f"- {item}" for item in report.critical[:8])
         if report.warnings:
-            lines.append("\nتنبيهات:")
+            lines.append("\n" + t("guardian.warnings"))
             lines.extend(f"- {item}" for item in report.warnings[:8])
         if report.info:
-            lines.append("\nمعلومات:")
+            lines.append("\n" + t("guardian.info"))
             lines.extend(f"- {item}" for item in report.info[:6])
         if report.ok:
-            lines.append("\nالذاكرة محفوظة، والنسخة الاحتياطية اتحدثت.")
+            lines.append("\n" + t("guardian.footer"))
         return "\n".join(lines)
 
     def latest_manifest(self) -> dict | None:

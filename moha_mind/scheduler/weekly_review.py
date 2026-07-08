@@ -4,6 +4,7 @@ from moha_mind.agent.core import MohaMindAgent
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.telegram_bot.formatters import truncate_message
+from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.timezone import ksa_today_str
 
@@ -21,7 +22,7 @@ class WeeklyReview:
         try:
             review = await self.agent.generate_weekly_review()
 
-            header = "📊 المراجعة الأسبوعية\n\n"
+            header = t("review.header") + "\n\n"
             full_message = header + review
 
             for part in truncate_message(full_message):

@@ -15,6 +15,7 @@ from moha_mind.scheduler.reminder_engine import ReminderEngine
 from moha_mind.scheduler.social_pulse import SocialPulse
 from moha_mind.scheduler.weekly_review import WeeklyReview
 from moha_mind.telegram_bot.bot import MohaMindBot
+from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
 
 
@@ -157,18 +158,17 @@ class SchedulerJobs:
         family_server = FamilyServer(self.memory)
         result = await family_server.handle_tool("family_update_pregnancy_week", {})
         if result and "week" in result.lower():
-            await self.bot.send_message(f"🤰 تحديث الحمل:\n{result}")
+            await self.bot.send_message(f"{t('jobs.pregnancy_header')}\n{result}")
 
     async def _monthly_subscription_check(self) -> None:
         """Monthly subscription review."""
         response = await self.agent.chat(
-            "اكتب الرد باللغة العربية الواضحة. راجع كل الاشتراكات والفواتير، "
-            "اعرض إجمالي التكلفة الشهرية، ونبّهني لأي شيء غير معتاد.",
+            t("jobs.subscription_prompt"),
             chat_id="scheduler",
         )
         from moha_mind.telegram_bot.formatters import truncate_message
 
-        header = "💰 مراجعة الاشتراكات والفواتير الشهرية\n\n"
+        header = t("jobs.subscription_header") + "\n\n"
         for part in truncate_message(header + response):
             await self.bot.send_message(part)
 

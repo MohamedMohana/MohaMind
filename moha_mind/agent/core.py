@@ -29,6 +29,7 @@ from moha_mind.utils.arabic_support import (
     detect_language,
     normalize_colloquial_arabic,
 )
+from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
 
 
@@ -908,7 +909,7 @@ class MohaMindAgent:
                 log.error(f"Forced final reply failed: {exc}")
 
         if not final_response:
-            final_response = "تم تنفيذ طلبك ✅"
+            final_response = t("chat.done_fallback", lang=detect_language(message))
             conversation.append({"role": "assistant", "content": final_response})
         elif not conversation or conversation[-1].get("role") != "assistant":
             conversation.append({"role": "assistant", "content": final_response})
@@ -997,15 +998,8 @@ class MohaMindAgent:
 
     async def generate_briefing(self) -> str:
         """Generate the morning briefing without tool calls - just a direct LLM response."""
-        system_prompt = build_system_prompt(
-            self.memory, extra_context="MODE: Morning Briefing - Generate a comprehensive daily briefing in Arabic"
-        )
-        briefing_request = (
-            "اكتب ملخص الصباح لهذا اليوم باللغة العربية الواضحة والمهنية. "
-            "ضمّن مواعيد التقويم، المهام ذات الأولوية، العناصر القريبة من الانتهاء، "
-            "اقتراحات مناسبة لليوم، وأي روابط مهمة بين المعلومات. "
-            "اجعل النبرة دافئة ومباشرة، واستخدم عناوين قصيرة ونقاطًا مرتبة."
-        )
+        system_prompt = build_system_prompt(self.memory, extra_context=t("briefing.mode"))
+        briefing_request = t("briefing.prompt")
 
         try:
             response = await self._chat_completion_with_fallback(
@@ -1054,17 +1048,12 @@ class MohaMindAgent:
 
         except Exception as e:
             log.error(f"Briefing generation failed: {e}")
-            return f"صباح الخير. واجهت مشكلة أثناء إعداد ملخصك الكامل اليوم. الخطأ: {e}"
+            return t("briefing.generation_error", error=e)
 
     async def generate_weekly_review(self) -> str:
         """Generate the weekly life review."""
-        system_prompt = build_system_prompt(self.memory, extra_context="MODE: Weekly Life Review - Arabic")
-        review_request = (
-            "اكتب المراجعة الأسبوعية باللغة العربية الواضحة والمهنية. "
-            "ضمّن المهام المكتملة والمتأخرة، الأنماط التي لاحظتها، ملخصًا ماليًا، "
-            "العادات الصحية، العلاقات الاجتماعية، واقتراحات عملية للأسبوع القادم. "
-            "كن بنّاءً ومباشرًا دون إطالة."
-        )
+        system_prompt = build_system_prompt(self.memory, extra_context=t("review.mode"))
+        review_request = t("review.prompt")
 
         try:
             response = await self._chat_completion_with_fallback(
@@ -1112,4 +1101,4 @@ class MohaMindAgent:
             return choice.message.content or ""
         except Exception as e:
             log.error(f"Weekly review generation failed: {e}")
-            return "تعذر إعداد المراجعة الأسبوعية الآن. سأحاول مرة أخرى في الموعد القادم."
+            return t("review.error")

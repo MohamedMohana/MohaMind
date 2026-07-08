@@ -6,20 +6,33 @@ from datetime import datetime
 from moha_mind.agent.memory import MemoryManager
 from moha_mind.telegram_bot.bot import MohaMindBot
 from moha_mind.telegram_bot.formatters import truncate_message
+from moha_mind.utils.i18n import agent_language, occasion_day_phrase, t
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.occasions import upcoming_occasions
 from moha_mind.utils.reminder_schedule import RECURRING_REPEATS, next_reminder_after
 from moha_mind.utils.timezone import format_datetime_ar, now_ksa
 
 
-def _occasion_day_phrase(days: int) -> str:
-    if days == 1:
-        return "غدًا"
-    if days == 2:
-        return "بعد يومين"
-    if 3 <= days <= 10:
-        return f"بعد {days} أيام"
-    return f"بعد {days} يومًا"
+class _SentKeys:
+    """Insertion-ordered dedupe keys so pruning drops the oldest, not random ones."""
+
+    def __init__(self) -> None:
+        self._keys: dict[str, None] = {}
+
+    def add(self, key: str) -> None:
+        self._keys[key] = None
+
+    def prune(self, keep: int) -> None:
+        excess = len(self._keys) - keep
+        if excess > 0:
+            for key in list(self._keys)[:excess]:
+                del self._keys[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._keys
+
+    def __len__(self) -> int:
+        return len(self._keys)
 
 
 def _needs_daily_countdown(kind: str, source_line: str) -> bool:
@@ -95,7 +108,7 @@ class ReminderEngine:
     def __init__(self, memory: MemoryManager, bot: MohaMindBot):
         self.memory = memory
         self.bot = bot
-        self._sent_reminders: set[str] = set()
+        self._sent_reminders = _SentKeys()
 
     async def check_and_remind(self) -> None:
         """Check for upcoming events and deadlines, send reminders."""
@@ -114,16 +127,16 @@ class ReminderEngine:
                 reminder_key = f"task:{task['text']}:{task['due']}"
 
                 if days == 3 and f"3d:{reminder_key}" not in self._sent_reminders:
-                    reminders.append(f"📋 مهمة مستحقة بعد 3 أيام: {task['text']}")
+                    reminders.append(t("remind.task_3d", task=task["text"]))
                     self._sent_reminders.add(f"3d:{reminder_key}")
                 elif days == 1 and f"1d:{reminder_key}" not in self._sent_reminders:
-                    reminders.append(f"📋 مهمة مستحقة غدًا: {task['text']}")
+                    reminders.append(t("remind.task_1d", task=task["text"]))
                     self._sent_reminders.add(f"1d:{reminder_key}")
                 elif days == 0 and f"0d:{reminder_key}" not in self._sent_reminders:
-                    reminders.append(f"📋 مهمة مستحقة اليوم: {task['text']}")
+                    reminders.append(t("remind.task_0d", task=task["text"]))
                     self._sent_reminders.add(f"0d:{reminder_key}")
                 elif days < 0 and f"overdue:{reminder_key}" not in self._sent_reminders:
-                    reminders.append(f"⚠️ مهمة متأخرة: {task['text']} (كان موعدها {task['due']})")
+                    reminders.append(t("remind.task_overdue", task=task["text"], due=task["due"]))
                     self._sent_reminders.add(f"overdue:{reminder_key}")
             except ValueError:
                 continue
@@ -133,7 +146,7 @@ class ReminderEngine:
             if item["days_left"] == 1:
                 reminder_key = f"expiry:{item['detail']}"
                 if reminder_key not in self._sent_reminders:
-                    reminders.append(f"🔔 ينتهي غدًا: {item['detail']}")
+                    reminders.append(t("remind.expiry_tomorrow", detail=item["detail"]))
                     self._sent_reminders.add(reminder_key)
 
         for occasion in upcoming_occasions(self.memory.read("occasions"), days_ahead=7, reference=now):
@@ -143,16 +156,22 @@ class ReminderEngine:
                 and 1 <= occasion.days_left <= 7
                 and f"{occasion.days_left}d:{reminder_key}" not in self._sent_reminders
             ):
-                reminders.append(f"💍 {_occasion_day_phrase(occasion.days_left)}: {occasion.title}")
+                reminders.append(
+                    t(
+                        "remind.occasion_countdown",
+                        phrase=occasion_day_phrase(occasion.days_left),
+                        title=occasion.title,
+                    )
+                )
                 self._sent_reminders.add(f"{occasion.days_left}d:{reminder_key}")
             elif occasion.days_left == 7 and f"7d:{reminder_key}" not in self._sent_reminders:
-                reminders.append(f"🎉 بعد أسبوع: {occasion.title}")
+                reminders.append(t("remind.occasion_week", title=occasion.title))
                 self._sent_reminders.add(f"7d:{reminder_key}")
             elif occasion.days_left == 1 and f"1d:{reminder_key}" not in self._sent_reminders:
-                reminders.append(f"🎁 غدًا: {occasion.title}")
+                reminders.append(t("remind.occasion_tomorrow", title=occasion.title))
                 self._sent_reminders.add(f"1d:{reminder_key}")
             elif occasion.days_left == 0 and f"0d:{reminder_key}" not in self._sent_reminders:
-                reminders.append(f"🎊 اليوم: {occasion.title}")
+                reminders.append(t("remind.occasion_today", title=occasion.title))
                 self._sent_reminders.add(f"0d:{reminder_key}")
 
         for reminder in self.memory.get_reminder_section():
@@ -173,11 +192,14 @@ class ReminderEngine:
                 self.memory.complete_reminder(reminder["text"], remind_at=remind_at)
                 continue
 
-            event_suffix = (
-                f"\nوقت الحدث: {format_datetime_ar(reminder['event_at'])}" if reminder.get("event_at") else ""
-            )
-            notes_suffix = f"\nملاحظات: {reminder['notes']}" if reminder.get("notes") else ""
-            reminders.append(f"⏰ تذكير: {reminder['text']}{event_suffix}{notes_suffix}")
+            event_suffix = ""
+            if reminder.get("event_at"):
+                event_when = (
+                    format_datetime_ar(reminder["event_at"]) if agent_language() == "ar" else reminder["event_at"]
+                )
+                event_suffix = "\n" + t("remind.event_time", when=event_when)
+            notes_suffix = "\n" + t("remind.notes", notes=reminder["notes"]) if reminder.get("notes") else ""
+            reminders.append(t("remind.timed", text=reminder["text"]) + event_suffix + notes_suffix)
             self._sent_reminders.add(reminder_key)
 
             repeat = reminder.get("repeat", "none")
@@ -223,18 +245,17 @@ class ReminderEngine:
 
                 reminder_key = f"family:{line.strip()}:{date_match.group(1)}"
                 if days == 1 and f"1d:{reminder_key}" not in self._sent_reminders:
-                    reminders.append(f"👨‍👩‍👧‍👦 غدًا: {line.strip()}")
+                    reminders.append(t("remind.family_tomorrow", line=line.strip()))
                     self._sent_reminders.add(f"1d:{reminder_key}")
                 elif days == 0 and f"0d:{reminder_key}" not in self._sent_reminders:
-                    reminders.append(f"👨‍👩‍👧‍👦 اليوم: {line.strip()}")
+                    reminders.append(t("remind.family_today", line=line.strip()))
                     self._sent_reminders.add(f"0d:{reminder_key}")
 
         if len(self._sent_reminders) > 200:
-            sent = list(self._sent_reminders)
-            self._sent_reminders = set(sent[-100:])
+            self._sent_reminders.prune(keep=100)
 
         if reminders:
-            message = "⏰ التذكيرات:\n\n" + "\n".join(f"- {r}" for r in reminders)
+            message = t("remind.title") + "\n\n" + "\n".join(f"- {r}" for r in reminders)
             for part in truncate_message(message):
                 await self.bot.send_message(part)
             log.info(f"Reminder Engine: sent {len(reminders)} reminders")
