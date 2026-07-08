@@ -46,14 +46,14 @@ class InputHandler:
 
     def _get_session(self, mood: str = "neutral") -> PromptSession:
         theme = get_theme(mood)
-        signature = f"{theme['primary']}:{theme.get('prompt_label', 'mohamind')}"
+        signature = f"{theme['accent']}:{theme.get('prompt_label', 'mohamind')}"
 
         if self.session is None or self._session_signature != signature:
             from prompt_toolkit.styles import Style as PTStyle
 
             style = PTStyle.from_dict(
                 {
-                    "prompt": f"bold {theme['primary']}",
+                    "prompt": f"bold {theme['accent']}",
                     "": f"{theme['primary']}",
                 }
             )
@@ -74,7 +74,7 @@ class InputHandler:
         prompt_label = get_theme(mood).get("prompt_label", "mohamind")
         try:
             result = await session.prompt_async(
-                message=[("class:prompt", f"◐ {prompt_label} > ")],
+                message=[("class:prompt", f"{prompt_label} ❯ ")],
             )
             return result.strip()
         except (EOFError, KeyboardInterrupt):
@@ -85,7 +85,7 @@ class InputHandler:
         prompt_label = get_theme(mood).get("prompt_label", "mohamind")
         try:
             result = session.prompt(
-                message=[("class:prompt", f"◐ {prompt_label} > ")],
+                message=[("class:prompt", f"{prompt_label} ❯ ")],
             )
             return result.strip()
         except (EOFError, KeyboardInterrupt):

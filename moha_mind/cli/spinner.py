@@ -1,8 +1,7 @@
-"""Neural pulse spinner - brain-wave thinking animation.
+"""Hermes signal spinner — a pulse travelling through the ornament glyphs.
 
-Instead of a boring spinner, shows an animated neural signal
-propagating through brain nodes. Each frame shows a different
-pattern of active neurons firing.
+Instead of a generic spinner, a bright chartreuse window slides across the
+Hermes glyph run while the rest stays field-blue. Same NeuralPulse API.
 """
 
 import threading
@@ -11,32 +10,20 @@ from rich.console import Console, Group
 from rich.live import Live
 from rich.text import Text
 
-from moha_mind.cli.themes import get_brain_colors
+from moha_mind.cli.themes import get_brain_colors, get_theme
 
-NEURAL_FRAMES = [
-    "◉──○──○──○──○",
-    "○──◉──○──○──○",
-    "○──○──◉──○──○",
-    "○──○──○──◉──○",
-    "○──○──○──○──◉",
-    "◉──○──◉──○──○",
-    "○──◉──○──◉──○",
-    "○──○──◉──○──◉",
-    "◉──○──○──◉──○",
-    "○──◉──◉──◉──○",
-    "◉──◉──◉──○──○",
-    "◉──◉──◉──◉──◉",
-]
+SIGNAL = r"/\-_=+|<-/=~:*-/\-_=+|<"
+PULSE_WIDTH = 5
 
 THINKING_MESSAGES = [
-    "Scanning your orbit...",
-    "Checking the command deck...",
-    "Linking memories...",
-    "Reading your signals...",
-    "Plotting next moves...",
-    "Synthesizing context...",
-    "Sorting priorities...",
-    "Bringing it together...",
+    "scanning your orbit...",
+    "checking the command deck...",
+    "linking memories...",
+    "reading your signals...",
+    "plotting next moves...",
+    "synthesizing context...",
+    "sorting priorities...",
+    "bringing it together...",
 ]
 
 
@@ -49,22 +36,23 @@ class NeuralPulse:
         self._active = False
 
     def _build_frame(self, frame_idx: int, msg_idx: int) -> Group:
+        theme = get_theme(self.mood)
         colors = get_brain_colors(self.mood)
-        frame = NEURAL_FRAMES[frame_idx % len(NEURAL_FRAMES)]
-        msg = THINKING_MESSAGES[msg_idx % len(THINKING_MESSAGES)]
+        pulse_start = frame_idx % len(SIGNAL)
+        msg = THINKING_MESSAGES[(msg_idx // len(SIGNAL)) % len(THINKING_MESSAGES)]
 
-        colored_frame = Text()
-        for i, char in enumerate(frame):
-            if char == "◉":
-                color = colors[i % len(colors)]
-                colored_frame.append(char, style=f"bold {color}")
-            elif char == "─":
-                colored_frame.append(char, style="dim")
+        line = Text("  ")
+        for i, char in enumerate(SIGNAL):
+            offset = (i - pulse_start) % len(SIGNAL)
+            if offset < PULSE_WIDTH:
+                # Head of the pulse is brightest, trailing glyphs fade.
+                color = colors[min(offset, len(colors) - 1)]
+                line.append(char, style=f"bold {color}")
             else:
-                colored_frame.append(char, style="dim white")
+                line.append(char, style=theme["dim"])
 
-        label = Text(f"  {msg}", style="italic dim")
-        return Group(colored_frame, label)
+        label = Text(f"  {msg}", style=f"italic {theme['dim']}")
+        return Group(line, label)
 
     def _spin(self, live: Live) -> None:
         idx = 0
@@ -72,7 +60,7 @@ class NeuralPulse:
             frame = self._build_frame(idx, idx)
             live.update(frame)
             idx += 1
-            self._stop_event.wait(0.12)
+            self._stop_event.wait(0.08)
 
     def start(self) -> None:
         if self._active:
@@ -82,7 +70,7 @@ class NeuralPulse:
         self._live = Live(
             Text(""),
             console=self.console,
-            refresh_per_second=10,
+            refresh_per_second=12,
             transient=True,
         )
         self._live.start()

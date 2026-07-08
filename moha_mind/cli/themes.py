@@ -1,49 +1,67 @@
-"""Mood-aware color themes for MohaMind CLI.
+"""Hermes-inspired color themes for the MohaMind CLI.
 
-Colors adapt based on the user's detected energy/mood state.
-Inspired by neural activity visualization - warmer tones for high energy,
-cooler tones for calm/focus, muted tones for low energy.
+One strict palette — hermes blue, off-white, electric chartreuse — applied
+at three intensities that track the user's energy/mood state:
+
+    high    -> chartreuse-forward, electric
+    neutral -> blue field, chartreuse accents
+    low     -> dimmed blues, muted accent (night shift)
+
+Palette source: hermes-agent.nousresearch.com
+    field  #0000f2   fg  #f5f5f5   accent  #edff45   paper  #ffffff
 """
 
 from rich.style import Style
 from rich.text import Text
 
+# ── Hermes design tokens ─────────────────────────────────────────────────────
+HERMES_FIELD = "#0000f2"  # the blue field — used as a *background*
+HERMES_BLUE = "#4d4dff"  # the field color lifted to read on dark terminals
+HERMES_BLUE_SOFT = "#8a8aff"
+HERMES_FG = "#f5f5f5"
+HERMES_ACCENT = "#edff45"
+HERMES_ACCENT_DIM = "#b9c53e"
+HERMES_PAPER = "#ffffff"
+
+# Decorative glyph run lifted from the Hermes hero section.
+HERMES_ORNAMENT = r"/\-_=+|<  -/=  ~:*-/"
+
 ENERGY_HIGH = {
-    "primary": "#F97316",
-    "accent": "#FACC15",
-    "secondary": "#FB7185",
-    "brain": "#FDBA74",
-    "prompt": "bold #F97316",
-    "panel_border": "#F97316",
-    "panel_title": "bold #FACC15",
-    "status": "#FB7185",
-    "dim": "#8B8B8B",
+    "primary": HERMES_FG,
+    "accent": HERMES_ACCENT,
+    "secondary": HERMES_PAPER,
+    "brain": HERMES_ACCENT,
+    "prompt": f"bold {HERMES_ACCENT}",
+    "panel_border": HERMES_ACCENT,
+    "panel_title": f"bold {HERMES_ACCENT}",
+    "status": HERMES_FG,
+    "dim": "#9d9dc7",
     "prompt_label": "majlis",
 }
 
 ENERGY_NEUTRAL = {
-    "primary": "#0F766E",
-    "accent": "#14B8A6",
-    "secondary": "#C08457",
-    "brain": "#2DD4BF",
-    "prompt": "bold #0F766E",
-    "panel_border": "#0F766E",
-    "panel_title": "bold #14B8A6",
-    "status": "#C08457",
-    "dim": "#7A7A7A",
+    "primary": HERMES_FG,
+    "accent": HERMES_ACCENT,
+    "secondary": HERMES_BLUE_SOFT,
+    "brain": HERMES_BLUE,
+    "prompt": f"bold {HERMES_ACCENT}",
+    "panel_border": HERMES_BLUE,
+    "panel_title": f"bold {HERMES_ACCENT}",
+    "status": HERMES_BLUE_SOFT,
+    "dim": "#8383b8",
     "prompt_label": "mohamind",
 }
 
 ENERGY_LOW = {
-    "primary": "#1D4ED8",
-    "accent": "#7C3AED",
-    "secondary": "#38BDF8",
-    "brain": "#60A5FA",
-    "prompt": "bold #1D4ED8",
-    "panel_border": "#1D4ED8",
-    "panel_title": "bold #7C3AED",
-    "status": "#38BDF8",
-    "dim": "#676767",
+    "primary": "#d8d8e8",
+    "accent": HERMES_ACCENT_DIM,
+    "secondary": HERMES_BLUE_SOFT,
+    "brain": "#6b6bcc",
+    "prompt": f"bold {HERMES_ACCENT_DIM}",
+    "panel_border": "#3535b8",
+    "panel_title": f"bold {HERMES_ACCENT_DIM}",
+    "status": HERMES_BLUE_SOFT,
+    "dim": "#6b6b99",
     "prompt_label": "night-shift",
 }
 
@@ -54,9 +72,9 @@ MOOD_THEMES = {
 }
 
 BRAIN_COLORS = {
-    "high": ["#F97316", "#FACC15", "#FB7185", "#FDBA74"],
-    "neutral": ["#0F766E", "#14B8A6", "#2DD4BF", "#C08457"],
-    "low": ["#1D4ED8", "#7C3AED", "#60A5FA", "#38BDF8"],
+    "high": [HERMES_ACCENT, HERMES_FG, "#d4e63e", HERMES_PAPER],
+    "neutral": [HERMES_BLUE, HERMES_ACCENT, HERMES_BLUE_SOFT, HERMES_FG],
+    "low": ["#3535b8", HERMES_BLUE_SOFT, "#6b6bcc", HERMES_ACCENT_DIM],
 }
 
 

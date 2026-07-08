@@ -8,7 +8,6 @@ import asyncio
 from pathlib import Path
 
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
@@ -30,6 +29,7 @@ from moha_mind.cli.display import (
     display_status_bar,
     display_success,
     display_tasks,
+    hermes_panel,
 )
 from moha_mind.cli.input_handler import InputHandler
 from moha_mind.cli.spinner import NeuralPulse
@@ -128,6 +128,9 @@ class MohaMindCLI:
             Command(name="calendar", description="Show calendar integrations", handler=self._cmd_calendar)
         )
         self.registry.register(
+            Command(name="mcp", description="Show external MCP servers and their tools", handler=self._cmd_mcp)
+        )
+        self.registry.register(
             Command(
                 name="majlis",
                 description="Open MohaMind command center",
@@ -156,14 +159,14 @@ class MohaMindCLI:
     async def _cmd_quit(self, args: str = "") -> str | None:
         self._running = False
         theme = get_theme(self._current_mood())
-        self.console.print(Text("\n  👋 Goodbye! MohaMind will miss you.\n", style=f"italic {theme['dim']}"))
+        self.console.print(Text("\n  signing off — mohamind will keep remembering.\n", style=f"italic {theme['dim']}"))
         return None
 
     async def _cmd_tasks(self, args: str = "") -> str | None:
         tasks = self.memory.get_task_section()
         active = [t for t in tasks if not t["done"]]
         if not active:
-            self.console.print(display_success("No active tasks - you're all caught up! 🎉"))
+            self.console.print(display_success("No active tasks — you're all caught up."))
         else:
             self.console.print(display_tasks(active, self._current_mood()))
         return None
@@ -216,7 +219,7 @@ class MohaMindCLI:
             days = int(args.strip())
         items = self.memory.get_expiring_items(days)
         if not items:
-            self.console.print(display_success("Nothing expiring soon! ✅"))
+            self.console.print(display_success("Nothing expiring soon."))
         else:
             self.console.print(display_expiring(items, self._current_mood()))
         return None
@@ -241,9 +244,7 @@ class MohaMindCLI:
 
         theme = get_theme(self._current_mood())
         recalled = self.agent.recall(query, chat_id="cli")
-        self.console.print(
-            Panel(recalled, title="🧠 Recall", title_align="left", border_style=theme["panel_border"], padding=(1, 2))
-        )
+        self.console.print(hermes_panel(recalled, "recall", theme))
         return None
 
     async def _cmd_memory(self, args: str = "") -> str | None:
@@ -278,15 +279,7 @@ class MohaMindCLI:
                 preview = "(empty)"
             table.add_row(cat, size, Text(preview))
 
-        self.console.print(
-            Panel(
-                table,
-                title="💾 Memory Banks",
-                title_align="left",
-                border_style=theme["panel_border"],
-                padding=(1, 2),
-            )
-        )
+        self.console.print(hermes_panel(table, "memory banks", theme))
         return None
 
     async def _cmd_review(self, args: str = "") -> str | None:
@@ -327,15 +320,7 @@ class MohaMindCLI:
         table.add_row("Current Mood:", self._current_mood())
         table.add_row("Time:", f"{ksa_date_display()} {ksa_time_str()}")
 
-        self.console.print(
-            Panel(
-                table,
-                title="📊 System Stats",
-                title_align="left",
-                border_style=theme["panel_border"],
-                padding=(1, 2),
-            )
-        )
+        self.console.print(hermes_panel(table, "system stats", theme))
         return None
 
     async def _cmd_clear(self, args: str = "") -> str | None:
@@ -355,15 +340,7 @@ class MohaMindCLI:
         table.add_row("Productive Hours:", ", ".join(f"{h}:00" for h in productive))
         table.add_row("Suggestion:", suggestion)
 
-        self.console.print(
-            Panel(
-                table,
-                title="🧠 Mood & Energy",
-                title_align="left",
-                border_style=theme["panel_border"],
-                padding=(1, 2),
-            )
-        )
+        self.console.print(hermes_panel(table, "mood & energy", theme))
         return None
 
     async def _cmd_add(self, args: str = "") -> str | None:
@@ -394,7 +371,7 @@ class MohaMindCLI:
             return None
         success = self.memory.complete_task(args.strip())
         if success:
-            self.console.print(display_success(f"Task completed: {args.strip()} ✅"))
+            self.console.print(display_success(f"Task completed: {args.strip()}"))
         else:
             self.console.print(display_error(f"Task not found: {args.strip()}"))
         return None
@@ -410,7 +387,7 @@ class MohaMindCLI:
                 table.add_column("Note", style=f"bold {theme['accent']}")
                 for n in notes:
                     table.add_row(n)
-                self.console.print(Panel(table, title="📝 Notes", border_style=theme["panel_border"], padding=(1, 2)))
+                self.console.print(hermes_panel(table, "notes", theme))
             return None
 
         parts = args.strip().split(maxsplit=1)
@@ -426,7 +403,7 @@ class MohaMindCLI:
         theme = get_theme(self._current_mood())
         server = FamilyServer(self.memory)
         result = await server._get_upcoming(days_ahead=30)
-        self.console.print(Panel(result, title="👨‍👩‍👧‍👦 Family", border_style=theme["panel_border"], padding=(1, 2)))
+        self.console.print(hermes_panel(result, "family", theme))
         return None
 
     async def _cmd_social(self, args: str = "") -> str | None:
@@ -438,7 +415,7 @@ class MohaMindCLI:
         birthdays = await server._get_upcoming_birthdays(days_ahead=60)
 
         combined = f"{neglected}\n\n{birthdays}"
-        self.console.print(Panel(combined, title="📱 Social", border_style=theme["panel_border"], padding=(1, 2)))
+        self.console.print(hermes_panel(combined, "social", theme))
         return None
 
     async def _cmd_vehicle(self, args: str = "") -> str | None:
@@ -447,7 +424,7 @@ class MohaMindCLI:
         if not content.strip():
             self.console.print(display_success("No vehicle data yet. Tell me about your car!"))
         else:
-            self.console.print(Panel(content, title="🚗 Vehicle", border_style=theme["panel_border"], padding=(1, 2)))
+            self.console.print(hermes_panel(content, "vehicle", theme))
         return None
 
     async def _cmd_health(self, args: str = "") -> str | None:
@@ -456,7 +433,7 @@ class MohaMindCLI:
         if not content.strip():
             self.console.print(display_success("No health data yet. Tell me about your medications or vitals!"))
         else:
-            self.console.print(Panel(content, title="🏥 Health", border_style=theme["panel_border"], padding=(1, 2)))
+            self.console.print(hermes_panel(content, "health", theme))
         return None
 
     async def _cmd_finance(self, args: str = "") -> str | None:
@@ -465,7 +442,7 @@ class MohaMindCLI:
         theme = get_theme(self._current_mood())
         server = LifeTrackerServer(self.memory)
         upcoming = await server._finance_get_upcoming(days_ahead=30)
-        self.console.print(Panel(upcoming, title="💰 Finance", border_style=theme["panel_border"], padding=(1, 2)))
+        self.console.print(hermes_panel(upcoming, "finance", theme))
         return None
 
     async def _cmd_setup(self, args: str = "") -> str | None:
@@ -503,7 +480,7 @@ class MohaMindCLI:
         table.add_row("Google Cal:", "Configured" if settings.google_credentials_path else "Not configured")
         table.add_row("MS Graph:", "Configured" if settings.ms_client_id else "Not configured")
 
-        self.console.print(Panel(table, title="⚙️ Configuration", border_style=theme["panel_border"], padding=(1, 2)))
+        self.console.print(hermes_panel(table, "configuration", theme))
         return None
 
     async def _cmd_today(self, args: str = "") -> str | None:
@@ -513,21 +490,19 @@ class MohaMindCLI:
         expiring = self.memory.get_expiring_items(7)
 
         parts = []
-        parts.append(f"📋 **{len(active)} active tasks**")
+        parts.append(f"**{len(active)} active tasks**")
         for t in active[:5]:
             due_info = f" (due {t['due']})" if t["due"] else ""
             parts.append(f"  - [{t['priority'].upper()}] {t['text']}{due_info}")
 
         if expiring:
-            parts.append(f"\n⏰ **{len(expiring)} items expiring within 7 days**")
+            parts.append(f"\n**{len(expiring)} items expiring within 7 days**")
             for item in expiring[:5]:
                 parts.append(f"  - {item['category']}: {item['detail']} ({item['days_left']}d)")
 
-        parts.append(f"\n🕐 {ksa_date_display()} • {ksa_time_str()}")
+        parts.append(f"\n{ksa_date_display()} · {ksa_time_str()}")
 
-        self.console.print(
-            Panel("\n".join(parts), title="📅 Today", border_style=theme["panel_border"], padding=(1, 2))
-        )
+        self.console.print(hermes_panel("\n".join(parts), "today", theme))
         return None
 
     async def _cmd_radar(self, args: str = "") -> str | None:
@@ -566,6 +541,45 @@ class MohaMindCLI:
 
         snapshot = await self._calendar_snapshot(days_ahead=days_ahead)
         self.console.print(display_calendar_snapshot(snapshot, self._current_mood()))
+        return None
+
+    async def _cmd_mcp(self, args: str = "") -> str | None:
+        theme = get_theme(self._current_mood())
+        manager = getattr(self.agent, "external_mcp", None)
+
+        if manager is None or not manager.configs:
+            self.console.print(
+                hermes_panel(
+                    Text.from_markup(
+                        "No external MCP servers configured.\n\n"
+                        f"Create [bold]{settings.mcp_servers_config}[/] "
+                        "(see mcp_servers.example.json) and restart MohaMind.\n"
+                        'Format: {"mcpServers": {"name": {"command": ..., "args": [...]}}}',
+                        style=theme["primary"],
+                    ),
+                    "mcp servers",
+                    theme,
+                )
+            )
+            return None
+
+        table = Table(show_header=True, box=None, padding=(0, 1), expand=True)
+        table.add_column("Server", style=f"bold {theme['accent']}", width=16)
+        table.add_column("State", width=12)
+        table.add_column("Transport", style="dim", width=10)
+        table.add_column("Tools", style=theme["primary"])
+
+        state_styles = {"connected": "bold green", "failed": "bold red", "disabled": "dim"}
+        for entry in manager.status():
+            tools_text = ", ".join(entry["tools"]) if entry["tools"] else (entry["detail"] or "—")
+            table.add_row(
+                entry["name"],
+                Text(entry["state"], style=state_styles.get(entry["state"], "")),
+                entry["transport"],
+                Text(tools_text),
+            )
+
+        self.console.print(hermes_panel(table, "mcp servers", theme))
         return None
 
     async def _cmd_majlis(self, args: str = "") -> str | None:
@@ -611,14 +625,14 @@ class MohaMindCLI:
             expiry_lines.append("- Nothing expiring soon.")
 
         sections = [
-            {"title": "🎯 Attention Radar", "body": radar},
-            {"title": "🗓 Calendar Horizon", "body": calendar},
-            {"title": "⏰ Reminder Queue", "body": reminder_queue},
-            {"title": "📋 Mission Board", "body": "\n".join(task_lines)},
-            {"title": "⏰ Expiry Watch", "body": "\n".join(expiry_lines)},
-            {"title": "👨‍👩‍👧‍👦 Family Orbit", "body": family},
-            {"title": "📱 Social Pulse", "body": f"{neglected}\n\n{birthdays}"},
-            {"title": "💰 Money Horizon", "body": finance},
+            {"title": "attention radar", "body": radar},
+            {"title": "calendar horizon", "body": calendar},
+            {"title": "reminder queue", "body": reminder_queue},
+            {"title": "mission board", "body": "\n".join(task_lines)},
+            {"title": "expiry watch", "body": "\n".join(expiry_lines)},
+            {"title": "family orbit", "body": family},
+            {"title": "social pulse", "body": f"{neglected}\n\n{birthdays}"},
+            {"title": "money horizon", "body": finance},
         ]
         self.console.print(display_command_center(sections, self._current_mood()))
         return None
@@ -718,15 +732,7 @@ class MohaMindCLI:
                     continue
                 marker = " ← active" if m == current else ""
                 table.add_row(m, marker)
-            self.console.print(
-                Panel(
-                    table,
-                    title=f"🤖 Available {provider} models",
-                    title_align="left",
-                    border_style=theme["panel_border"],
-                    padding=(1, 2),
-                )
-            )
+            self.console.print(hermes_panel(table, f"models · {provider}", theme))
             new_model = Prompt.ask(
                 "  Switch to model (or Enter to keep current)",
                 default=current,
@@ -887,15 +893,7 @@ class MohaMindCLI:
             recap_lines = []
             for item in recent:
                 recap_lines.append(f"{item['role']}: {self.agent._truncate_text(item['content'], 120)}")
-            self.console.print(
-                Panel(
-                    "\n".join(recap_lines),
-                    title="↺ Previous Conversation",
-                    title_align="left",
-                    border_style=theme["panel_border"],
-                    padding=(1, 2),
-                )
-            )
+            self.console.print(hermes_panel("\n".join(recap_lines), "previous conversation", theme))
 
         while self._running:
             try:

@@ -1,69 +1,63 @@
-"""MohaMind CLI banner — block-art header with brain visual and green gradient."""
+"""MohaMind CLI banner — Hermes-style wordmark on a solid blue field.
+
+Off-white block letters on the hermes-blue field, chartreuse slogan,
+ornament glyphs. The field is the brand; mood only tints the accents.
+"""
 
 from rich.console import Group
 from rich.text import Text
 
-# ── Green gradient (left → right across ASCII art) ───────────────────────────
-_GRADIENT = ["#00FF87", "#00E676", "#00C853", "#00BFA5", "#1DE9B6", "#00E5FF"]
+from moha_mind.cli.themes import (
+    HERMES_FG,
+    HERMES_ORNAMENT,
+    get_theme,
+)
 
-# ── Brain art — two hemispheres with folds, block-art style ─────────────────
-#    Designed to sit to the right of the title — 6 lines to match.
-_BRAIN = [
-    r"      ▄▄███▄  ▄███▄▄",
-    r"    ▄██╭╮╭╮██  ██╭╮╭╮██▄",
-    r"   ██▌╰╯╭╯██▌▐██╰╮╰╯▐██",
-    r"   ██▌╭╮╰╮██▌▐██╭╯╭╮▐██",
-    r"    ▀██╰╯╰╯██▌▐██╰╯╰╯██▀",
-    r"      ▀▀██▄▄▐▌▄▄██▀▀",
-]
+_FIELD_BG = "on #0000f2"
+_MARGIN = 3  # spaces of blue field left/right of content
 
 
-def _ascii_title(mood: str = "neutral") -> Text:
-    """Render 'MohaMind' block-art + brain side-by-side with green gradient."""
+def _wordmark_lines() -> list[str]:
     try:
         import pyfiglet  # type: ignore[import-untyped]
 
         art = pyfiglet.figlet_format("MohaMind", font="ansi_shadow", width=120)
+        lines = [line.rstrip() for line in art.split("\n")]
+        while lines and not lines[-1].strip():
+            lines.pop()
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        if lines:
+            return lines
     except Exception:
-        return Text("  MohaMind\n", style="bold #00FF87")
+        pass
+    return ["M O H A M I N D"]
 
-    title_lines = art.split("\n")
-    while title_lines and not title_lines[-1].strip():
-        title_lines.pop()
-    if not title_lines:
-        return Text("  MohaMind\n", style="bold #00FF87")
 
-    # Pad brain and title to same height
-    brain = list(_BRAIN)
-    while len(brain) < len(title_lines):
-        brain.append(" " * len(_BRAIN[0]))
-    while len(title_lines) < len(brain):
-        title_lines.append("")
+def _ascii_title(mood: str = "neutral") -> Text:
+    """Render the wordmark on the hermes-blue field."""
+    theme = get_theme(mood)
+    lines = _wordmark_lines()
+    slogan = "your personal agent · always on · always remembering"
+    ornament = HERMES_ORNAMENT
 
-    title_w = max(len(ln) for ln in title_lines) or 1
-    gap = "  "
-    colors = _GRADIENT
+    width = max(max(len(line) for line in lines), len(slogan), len(ornament)) + 2 * _MARGIN
+    pad = " " * _MARGIN
 
-    # Brain gradient: darker green → bright green → cyan (top to bottom)
-    brain_colors = ["#00C853", "#00E676", "#00FF87", "#00FF87", "#00E676", "#00C853"]
+    def field_row(content: str = "", style: str = HERMES_FG) -> Text:
+        row = Text()
+        row.append(f"{pad}{content}".ljust(width), style=f"{style} {_FIELD_BG}")
+        row.append("\n")
+        return row
 
     result = Text()
-    for i, (tl, bl) in enumerate(zip(title_lines, brain)):
-        # Title chars with left-to-right gradient
-        padded_t = tl.ljust(title_w)
-        for j, ch in enumerate(padded_t):
-            idx = min(int(j / title_w * len(colors)), len(colors) - 1)
-            result.append(ch, style=f"bold {colors[idx]}")
-
-        # Gap
-        result.append(gap)
-
-        # Brain chars with per-row color
-        bc = brain_colors[i % len(brain_colors)]
-        result.append(bl, style=f"bold {bc}")
-
-        result.append("\n")
-
+    result.append_text(field_row(ornament, style=theme["dim"]))
+    result.append_text(field_row())
+    for line in lines:
+        result.append_text(field_row(line, style=f"bold {HERMES_FG}"))
+    result.append_text(field_row())
+    result.append_text(field_row(slogan, style=f"italic {theme['accent']}"))
+    result.append_text(field_row())
     return result
 
 
@@ -80,34 +74,28 @@ def build_banner(
     google_enabled: bool = False,
     microsoft_enabled: bool = False,
 ) -> Group:
-    g = "#00FF87"
-    d = "#555555"
+    theme = get_theme(mood)
+    accent = theme["accent"]
+    dim = theme["dim"]
 
-    # ── Title + Brain ────────────────────────────────────────────────
     title = _ascii_title(mood)
-
-    # ── Slogan ───────────────────────────────────────────────────────
-    slogan = Text(
-        "  Your Personal Agent  ·  Always On  ·  Always Remembering\n",
-        style=f"italic {d}",
-    )
 
     # ── Status line ──────────────────────────────────────────────────
     status = Text("  ")
-    status.append(provider, style=f"bold {g}")
-    status.append(f"/{model}", style="bold white")
+    status.append(provider, style=f"bold {accent}")
+    status.append(f"/{model}", style=f"bold {HERMES_FG}")
 
-    status.append("   ", style=d)
+    status.append("   ")
     if tasks_count:
-        status.append(f"{tasks_count} tasks", style="bold white")
+        status.append(f"{tasks_count} tasks", style=HERMES_FG)
     else:
-        status.append("no tasks", style=d)
+        status.append("no tasks", style=dim)
 
-    status.append("   ", style=d)
+    status.append("   ")
     if expiring_count:
-        status.append(f"{expiring_count} expiring", style="bold #FF5252")
+        status.append(f"{expiring_count} expiring", style=f"bold {accent}")
     else:
-        status.append("nothing expiring", style=d)
+        status.append("nothing expiring", style=dim)
 
     links = []
     if telegram_enabled:
@@ -117,30 +105,28 @@ def build_banner(
     if microsoft_enabled:
         links.append("outlook")
     if links:
-        status.append("   ", style=d)
-        status.append(" ".join(links), style=d)
+        status.append("   ")
+        status.append(" · ".join(links), style=theme["secondary"])
 
     if uptime_hint:
-        status.append("   ", style=d)
-        status.append(uptime_hint, style=d)
+        status.append("   ")
+        status.append(uptime_hint, style=dim)
 
+    status.append(f"   v{version}", style=dim)
     status.append("\n")
 
     # ── Hint ─────────────────────────────────────────────────────────
     hint = Text("  ")
-    cmds = ["/help", "/majlis", "/radar", "/briefing"]
-    for i, cmd in enumerate(cmds):
+    for i, cmd in enumerate(["/help", "/majlis", "/radar", "/briefing", "/mcp"]):
         if i:
-            hint.append("  ", style=d)
-        hint.append(cmd, style=f"bold {g}")
-    hint.append("  or just start talking\n", style=d)
+            hint.append("  ")
+        hint.append(cmd, style=f"bold {accent}")
+    hint.append("   — or just start talking\n", style=dim)
 
-    # ── Assemble ─────────────────────────────────────────────────────
     return Group(
         Text(),
         title,
-        slogan,
-        status,
         Text(),
+        status,
         hint,
     )
