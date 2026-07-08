@@ -643,6 +643,16 @@ class Handlers:
                 pass
             return
 
+        # Destructive confirmations only count in the chat that issued them,
+        # so a second allowed account can never confirm someone else's action.
+        current_chat = str(update.effective_chat.id) if update.effective_chat else ""
+        if pending.get("chat_id") != current_chat:
+            try:
+                await query.edit_message_text("هذا التأكيد لا يخص هذه المحادثة.")
+            except Exception:
+                pass
+            return
+
         if action_type == "cancel":
             try:
                 await query.edit_message_text("تم الإلغاء.")

@@ -155,6 +155,7 @@ class TestForgetFlow:
 
         update = MagicMock()
         update.callback_query = query
+        update.effective_chat = SimpleNamespace(id=555)
 
         await handlers.on_callback(update, _context())
 
@@ -225,6 +226,7 @@ class TestDeleteNoteFlow:
         query.data = f"confirm:{token}"
         cb_update = MagicMock()
         cb_update.callback_query = query
+        cb_update.effective_chat = SimpleNamespace(id=100)
 
         await handlers.on_callback(cb_update, _context())
         assert "meeting" not in handlers.memory.list_notes()
@@ -251,6 +253,7 @@ class TestUntaskFlow:
         query.data = f"confirm:{token}"
         cb_update = MagicMock()
         cb_update.callback_query = query
+        cb_update.effective_chat = SimpleNamespace(id=100)
         await handlers.on_callback(cb_update, _context())
 
         content = handlers.memory.read("tasks")

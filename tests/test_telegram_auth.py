@@ -124,6 +124,44 @@ class TestGuardUnconfigured:
                 update.message.reply_text.assert_awaited_once()
 
 
+class TestCallbackChatBinding:
+    @pytest.mark.asyncio
+    async def test_confirm_from_another_chat_is_rejected(self, handlers):
+        handlers.memory.write("tasks", "# Tasks\n\n## Active\n- [ ] secret task\n")
+        token = handlers._remember_action("100", {"kind": "delete_task", "task_text": "secret task"})
+
+        query = MagicMock()
+        query.data = f"confirm:{token}"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.callback_query = query
+        update.effective_chat = SimpleNamespace(id=555)  # different chat than the issuer
+
+        await handlers.on_callback(update, MagicMock())
+
+        assert "secret task" in handlers.memory.read("tasks")  # nothing deleted
+        body = query.edit_message_text.await_args.args[0]
+        assert "لا يخص" in body
+
+    @pytest.mark.asyncio
+    async def test_confirm_from_same_chat_executes(self, handlers):
+        handlers.memory.write("tasks", "# Tasks\n\n## Active\n- [ ] secret task\n")
+        token = handlers._remember_action("100", {"kind": "delete_task", "task_text": "secret task"})
+
+        query = MagicMock()
+        query.data = f"confirm:{token}"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.callback_query = query
+        update.effective_chat = SimpleNamespace(id=100)
+
+        await handlers.on_callback(update, MagicMock())
+
+        assert "- [ ] secret task" not in handlers.memory.read("tasks")
+
+
 class TestAllowedIdsProperty:
     def test_combines_chat_id_and_extra_ids(self):
         with (
