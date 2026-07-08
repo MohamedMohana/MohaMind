@@ -408,6 +408,15 @@ uv run mohamind --all
 
 Telegram supports commands and free-form chat. You do not need to talk like a command interface all the time.
 
+### Owner lock (who can talk to the bot)
+
+Telegram bots are publicly discoverable, but MohaMind's memory is personal. The bot therefore only answers the IDs you allow:
+
+- `TELEGRAM_CHAT_ID` — your own chat (also where proactive alerts go)
+- `TELEGRAM_ALLOWED_USER_IDS` — optional comma-separated extra user IDs (e.g. a spouse)
+
+Anyone else gets a polite refusal and is logged; they never reach the agent, your memory, or your API keys. If `TELEGRAM_CHAT_ID` is empty, the bot stays fully locked and replies to any message with the chat ID you should paste into `.env` — which is also the easiest way to find your ID.
+
 ### Telegram commands
 
 | Command | What it does |
@@ -782,6 +791,7 @@ Most users only need these values:
 | `WEEKLY_REVIEW_DAY` | no | weekly review day |
 | `WEEKLY_REVIEW_TIME` | no | weekly review time |
 | `MEMORY_DIR` | no | defaults to `./memory` |
+| `TELEGRAM_ALLOWED_USER_IDS` | no | extra Telegram user IDs (comma-separated) allowed to talk to the bot |
 | `TELEGRAM_ALLOW_DESTRUCTIVE` | no | set to `false` to lock down `/forget`, `/untask`, `/delete_note` |
 | `RELIABILITY_GUARDIAN_ENABLED` | no | daily memory integrity scan and local backups |
 | `RELIABILITY_GUARDIAN_TIME` | no | when to run the reliability scan |
@@ -912,7 +922,7 @@ MohaMind/
 │   └── utils/                timezone, Arabic normalization, schedules
 ├── memory/                   Markdown memory + sessions.db + audit log
 ├── credentials/              optional Google / Microsoft OAuth
-└── tests/                    513 tests covering agent, memory, scheduler
+└── tests/                    547 tests covering agent, memory, scheduler
 ```
 
 ## Troubleshooting
@@ -927,7 +937,7 @@ MohaMind/
 
 Current local verification:
 
-- `uv run pytest -q` -> `513 passed`
+- `uv run pytest -q` -> `547 passed`
 - `uv run ruff check .` -> clean
 
 ## Development

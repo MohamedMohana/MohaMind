@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from moha_mind.agent.core import MohaMindAgent
 from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
@@ -52,6 +52,8 @@ class Handlers:
         self.memory = memory
         # Short-lived store for pending destructive confirmations (keyed by token).
         self._pending_actions: dict[str, dict[str, Any]] = {}
+        # Chats already told they are not allowed, so strangers can't spam replies.
+        self._denied_chats: set[str] = set()
         # Injected later by the app bootstrap so /consolidate, /pending work.
         self.consolidator = None
 
@@ -86,6 +88,54 @@ class Handlers:
         stale = [k for k, v in self._pending_actions.items() if v["created_at"] < cutoff]
         for key in stale:
             self._pending_actions.pop(key, None)
+
+    async def guard(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Owner lock — refuse updates from anyone not explicitly allowed.
+
+        Registered in group -1 so it runs before every other handler (commands,
+        messages, and inline-keyboard callbacks alike). Memory holds personal
+        data, so an unknown Telegram user must never reach the agent.
+        """
+        allowed = settings.telegram_allowed_ids
+        candidates = {
+            str(update.effective_user.id) if update.effective_user else "",
+            str(update.effective_chat.id) if update.effective_chat else "",
+        }
+        candidates.discard("")
+
+        if allowed and candidates & allowed:
+            return
+
+        query = update.callback_query
+        if query:
+            try:
+                await query.answer()
+            except Exception:
+                pass
+
+        chat_id = str(update.effective_chat.id) if update.effective_chat else ""
+        user_id = str(update.effective_user.id) if update.effective_user else "?"
+        log.warning(f"Refused unauthorized Telegram update (user={user_id}, chat={chat_id or '?'})")
+
+        if update.message and chat_id:
+            if not allowed:
+                # Bot not configured yet — help the owner finish setup.
+                await update.message.reply_text(
+                    "🔒 MohaMind is locked until its owner finishes setup.\n"
+                    f"If this bot is yours, set TELEGRAM_CHAT_ID={chat_id} in .env and restart.\n\n"
+                    "🔒 هذا مساعد شخصي خاص ولم يكتمل إعداده بعد.\n"
+                    f"إذا كان هذا البوت لك، ضع TELEGRAM_CHAT_ID={chat_id} في ملف ‎.env‎ ثم أعد التشغيل."
+                )
+            elif chat_id not in self._denied_chats:
+                if len(self._denied_chats) > 500:
+                    self._denied_chats.clear()
+                self._denied_chats.add(chat_id)
+                await update.message.reply_text(
+                    "🔒 This is a private personal assistant. Access is restricted to its owner.\n"
+                    "🔒 هذا مساعد شخصي خاص، والوصول مقصور على صاحبه."
+                )
+
+        raise ApplicationHandlerStop
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""

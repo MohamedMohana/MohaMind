@@ -128,7 +128,15 @@ SETUP_STEPS = [
         "label": "Telegram Chat ID",
         "category": "telegram",
         "default": "",
-        "description": "Get from @userinfobot on Telegram",
+        "description": "Get from @userinfobot on Telegram. Only this chat can talk to the bot.",
+        "optional": True,
+    },
+    {
+        "key": "TELEGRAM_ALLOWED_USER_IDS",
+        "label": "Extra Allowed Telegram IDs",
+        "category": "telegram",
+        "default": "",
+        "description": "Optional comma-separated user IDs also allowed to talk to the bot",
         "optional": True,
     },
     {

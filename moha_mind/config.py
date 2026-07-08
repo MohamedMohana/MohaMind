@@ -57,6 +57,9 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    # Extra Telegram user/chat IDs (comma-separated) allowed to talk to the bot
+    # in addition to TELEGRAM_CHAT_ID. Everyone else is refused.
+    telegram_allowed_user_ids: str = ""
     telegram_allow_destructive: bool = True
 
     google_credentials_path: str = "./credentials/google_credentials.json"
@@ -121,6 +124,13 @@ class Settings(BaseSettings):
     @property
     def memory_path(self) -> Path:
         return Path(self.memory_dir)
+
+    @property
+    def telegram_allowed_ids(self) -> frozenset[str]:
+        """All Telegram IDs allowed to talk to the bot (owner chat + extras)."""
+        ids = {self.telegram_chat_id.strip()}
+        ids.update(part.strip() for part in self.telegram_allowed_user_ids.split(","))
+        return frozenset(value for value in ids if value)
 
     def _provider_config(self, provider: str) -> dict | None:
         if provider == "zai" and self.zai_api_key:

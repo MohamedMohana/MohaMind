@@ -1,11 +1,13 @@
 """Telegram bot setup and lifecycle management."""
 
+from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -37,6 +39,11 @@ class MohaMindBot:
     def _register_handlers(self) -> None:
         """Register all command and message handlers."""
         app = self.app
+
+        # Owner lock: runs in group -1, before every other handler, and drops
+        # updates from anyone not allowed via TELEGRAM_CHAT_ID /
+        # TELEGRAM_ALLOWED_USER_IDS.
+        app.add_handler(TypeHandler(Update, self.handlers.guard), group=-1)
 
         app.add_handler(CommandHandler("start", self.handlers.start))
         app.add_handler(CommandHandler("help", self.handlers.help))
