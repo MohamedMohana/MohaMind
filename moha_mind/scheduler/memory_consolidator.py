@@ -35,8 +35,9 @@ from moha_mind.agent.privacy import PrivacyPolicy
 from moha_mind.agent.session_store import SessionStore
 from moha_mind.config import settings
 from moha_mind.telegram_bot.bot import MohaMindBot
+from moha_mind.utils.i18n import agent_language, t
 from moha_mind.utils.logging_config import log
-from moha_mind.utils.timezone import format_datetime_en, now_ksa
+from moha_mind.utils.timezone import format_datetime_ar, format_datetime_en, now_ksa
 
 PENDING_FILE = ".pending_consolidations.jsonl"
 
@@ -328,19 +329,19 @@ class MemoryConsolidator:
     ) -> None:
         if not self.bot:
             return
-        when = format_datetime_en(now_ksa().strftime("%Y-%m-%d %H:%M"))
-        header = f"Memory consolidation · {when}"
-        lines = [header]
+        stamp = now_ksa().strftime("%Y-%m-%d %H:%M")
+        when = format_datetime_ar(stamp) if agent_language() == "ar" else format_datetime_en(stamp)
+        lines = [t("consolidator.header", when=when)]
         if summary:
             lines.extend(["", summary])
         if applied:
             lines.append("")
-            lines.append("Applied:")
+            lines.append(t("consolidator.applied"))
             for p in applied[:10]:
                 lines.append(f"- [{p.category}] {p.content}")
         if queued:
             lines.append("")
-            lines.append("Awaiting your call:")
+            lines.append(t("consolidator.queued"))
             for p in queued[:10]:
                 tag = p.kind.upper()
                 lines.append(f"- [{tag} · {p.category}] {p.content}  (id: {p.proposal_id})")

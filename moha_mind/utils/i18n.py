@@ -156,6 +156,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "ar": "الذاكرة محفوظة، والنسخة الاحتياطية اتحدثت.",
         "en": "Memory is safe and the backup is up to date.",
     },
+    # ----- nightly memory consolidator -----
+    "consolidator.header": {"ar": "🧠 تجميع الذاكرة · {when}", "en": "🧠 Memory consolidation · {when}"},
+    "consolidator.applied": {"ar": "ما تم حفظه:", "en": "Applied:"},
+    "consolidator.queued": {"ar": "بانتظار قرارك:", "en": "Awaiting your call:"},
     # ----- scheduler jobs -----
     "jobs.subscription_prompt": {
         "ar": (
