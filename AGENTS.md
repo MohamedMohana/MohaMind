@@ -52,8 +52,9 @@ uv run ruff format .
 
 ## Key Patterns
 - Memory files are markdown with `## Sections` and `- list items`
-- MCP servers have a `handle_tool(tool_name, arguments)` async method
-- Agent core registers tool handlers from MCP servers at bootstrap
+- Built-in MCP servers are in-process classes with a `handle_tool(tool_name, arguments)` async method
+- External MCP servers (real protocol, stdio/HTTP) are configured in `mcp_servers.json` and connected via `mcp_servers/external.py`; their tools are exposed as `<server>_<tool>`
+- Agent core registers tool handlers from MCP servers at bootstrap; external tools pass their own JSON schema to `register_tool(..., schema=...)`
 - Scheduler jobs are registered in `scheduler/jobs.py`
 - All timestamps are in KSA timezone (Asia/Riyadh, UTC+3)
 

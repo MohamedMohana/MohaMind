@@ -200,6 +200,18 @@ async def bootstrap(require_telegram: bool = False):
     except Exception as e:
         log.warning(f"Microsoft Graph not available: {e}")
 
+    try:
+        from moha_mind.mcp_servers.external import ExternalMCPManager
+
+        external_mcp = ExternalMCPManager.from_config(settings.mcp_servers_config)
+        if external_mcp.configs:
+            await external_mcp.connect_all()
+            count = external_mcp.register_into(agent)
+            log.info(f"External MCP servers: {len(external_mcp.connections)} configured, {count} tools registered")
+        agent.external_mcp = external_mcp
+    except Exception as e:
+        log.warning(f"External MCP servers not available: {e}")
+
     log.info("All MCP servers registered")
 
     bot = None
@@ -256,6 +268,8 @@ async def run_bot_only() -> None:
         await bot_task
     except asyncio.CancelledError:
         pass
+    if agent.external_mcp:
+        await agent.external_mcp.aclose()
     log.info("MohaMind stopped. Goodbye!")
 
 
@@ -290,12 +304,18 @@ async def run_cli(with_bot: bool = False, initial_prompt: str | None = None) -> 
                     await bot_task
                 except asyncio.CancelledError:
                     pass
+        if agent.external_mcp:
+            await agent.external_mcp.aclose()
 
 
 async def run_one_shot(prompt: str) -> None:
     memory, agent, bot, scheduler = await bootstrap(require_telegram=False)
-    response = await agent.chat(prompt, chat_id="one-shot")
-    print(response)
+    try:
+        response = await agent.chat(prompt, chat_id="one-shot")
+        print(response)
+    finally:
+        if agent.external_mcp:
+            await agent.external_mcp.aclose()
 
 
 def run() -> None:

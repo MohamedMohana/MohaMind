@@ -50,6 +50,9 @@ class MohaMindAgent:
 
         self.conversations: dict[str, list[dict]] = {}
         self._tool_handlers: dict[str, Callable[..., Awaitable[str]]] = {}
+        self._tool_schemas: dict[str, dict] = {}
+        # Set by bootstrap when external MCP servers are configured.
+        self.external_mcp: Any = None
 
         self.strategy: str = getattr(settings, "effective_strategy", "fallback")
         self.verifier: Verifier | None = self._build_verifier()
@@ -89,9 +92,16 @@ class MohaMindAgent:
             log.warning(f"Failed to build verifier: {exc}")
             return None
 
-    def register_tool(self, name: str, handler: Callable[..., Awaitable[str]]) -> None:
-        """Register an external tool handler (from MCP servers)."""
+    def register_tool(self, name: str, handler: Callable[..., Awaitable[str]], schema: dict | None = None) -> None:
+        """Register an external tool handler (from MCP servers).
+
+        `schema` is an optional OpenAI function-calling schema. External MCP
+        tools pass theirs through verbatim; without one the schema is inferred
+        from the handler signature.
+        """
         self._tool_handlers[name] = handler
+        if schema is not None:
+            self._tool_schemas[name] = schema
         log.info(f"Tool registered: {name}")
 
     def _annotation_to_schema(self, annotation: Any) -> dict:
@@ -417,7 +427,8 @@ class MohaMindAgent:
         for name, handler in self._tool_handlers.items():
             if name in known_names:
                 continue
-            schemas.append(self._build_dynamic_tool_schema(name, handler))
+            explicit = self._tool_schemas.get(name)
+            schemas.append(explicit if explicit is not None else self._build_dynamic_tool_schema(name, handler))
 
         return schemas
 

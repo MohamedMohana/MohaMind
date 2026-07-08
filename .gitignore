@@ -18,6 +18,8 @@ venv/
 credentials/
 *.token
 *_token.json
+# External MCP server config may embed API keys — keep it local.
+mcp_servers.json
 
 # Memory — PRIVATE. Ignore EVERYTHING under memory/ by default.
 # Personal life data (health, finances, family, conversations, etc.) lives

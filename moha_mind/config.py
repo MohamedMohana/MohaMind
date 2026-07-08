@@ -81,6 +81,10 @@ class Settings(BaseSettings):
 
     memory_dir: str = "./memory"
 
+    # Claude-compatible external MCP servers config ({"mcpServers": {...}}).
+    # See mcp_servers.example.json. Missing file = no external servers.
+    mcp_servers_config: str = "./mcp_servers.json"
+
     log_level: str = "INFO"
 
     # ----- Memory router + summaries (Phase A) -----
