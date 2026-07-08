@@ -1,13 +1,6 @@
-```
-███╗   ███╗ ██████╗ ██╗  ██╗ █████╗ ███╗   ███╗██╗███╗   ██╗██████╗         ▄▄███▄  ▄███▄▄
-████╗ ████║██╔═══██╗██║  ██║██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗      ▄██╭╮╭╮██  ██╭╮╭╮██▄
-██╔████╔██║██║   ██║███████║███████║██╔████╔██║██║██╔██╗ ██║██║  ██║     ██▌╰╯╭╯██▌▐██╰╮╰╯▐██
-██║╚██╔╝██║██║   ██║██╔══██║██╔══██║██║╚██╔╝██║██║██║╚██╗██║██║  ██║     ██▌╭╮╰╮██▌▐██╭╯╭╮▐██
-██║ ╚═╝ ██║╚██████╔╝██║  ██║██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██████╔╝      ▀██╰╯╰╯██▌▐██╰╯╰╯██▀
-╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═════╝         ▀▀██▄▄▐▌▄▄██▀▀
-
-Your Personal Agent · Always On · Always Remembering
-```
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="MohaMind — your personal agent · always on · always remembering" width="100%">
+</p>
 
 [![CI](https://github.com/MohamedMohana/MohaMind/actions/workflows/ci.yml/badge.svg)](https://github.com/MohamedMohana/MohaMind/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)](https://www.python.org/downloads/)
@@ -368,6 +361,7 @@ MohaMind is designed to behave predictably, but reliable automation still depend
 | `/search <query>` | Search structured memory |
 | `/recall <query>` | Search memory and past conversations |
 | `/memory` | Preview memory files |
+| `/mcp` | Show external MCP servers and their tools |
 | `/expiring` | Show expiring documents and renewals |
 | `/briefing` | Generate the daily briefing |
 | `/review` | Generate the weekly review |
@@ -780,6 +774,41 @@ Set these values in `.env`:
 - `MS_CLIENT_SECRET`
 - `MS_TENANT_ID`
 - `MS_TOKEN_PATH`
+
+### External MCP Servers
+
+MohaMind speaks the real Model Context Protocol, so you can plug in any
+third-party MCP server (web fetch, GitHub, filesystem, Notion, ...) and the
+agent gets its tools automatically.
+
+1. Copy `mcp_servers.example.json` to `mcp_servers.json` (git-ignored).
+2. Declare servers in the same format Claude uses:
+
+   ```json
+   {
+     "mcpServers": {
+       "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] },
+       "github": {
+         "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-github"],
+         "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
+       },
+       "context7": { "url": "https://mcp.context7.com/mcp" }
+     }
+   }
+   ```
+
+3. Restart MohaMind. Check connections and discovered tools with `/mcp`.
+
+Notes:
+
+- `command`/`args` servers run over stdio; `url` servers use streamable HTTP.
+- `${VAR}` in `env` values and `headers` is expanded from your environment,
+  so secrets stay in `.env` or your shell.
+- Tools are exposed to the agent as `<server>_<tool>` (e.g. `github_create_issue`).
+- A server that fails to start is logged and skipped — MohaMind still boots.
+- Set `"disabled": true` to keep a server configured but off, and
+  `MCP_SERVERS_CONFIG` in `.env` to move the config file elsewhere.
 
 ## Minimal Configuration
 
