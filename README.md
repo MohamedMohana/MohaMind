@@ -931,7 +931,7 @@ MohaMind/
 │   └── utils/                timezone, Arabic normalization, schedules
 ├── memory/                   Markdown memory + sessions.db + audit log
 ├── credentials/              optional Google / Microsoft OAuth
-└── tests/                    564 tests covering agent, memory, scheduler
+└── tests/                    567 tests covering agent, memory, scheduler
 ```
 
 ## Troubleshooting
@@ -946,7 +946,7 @@ MohaMind/
 
 Current local verification:
 
-- `uv run pytest -q` -> `564 passed`
+- `uv run pytest -q` -> `567 passed`
 - `uv run ruff check .` -> clean
 
 ## Development

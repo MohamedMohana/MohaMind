@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
+from moha_mind.agent.memory_summarizer import MemorySummarizer
 from moha_mind.config import settings
 from moha_mind.telegram_bot.formatters import truncate_message
 from moha_mind.utils.i18n import t
@@ -57,11 +58,13 @@ class ReliabilityGuardian:
         memory: MemoryManager,
         bot: Any | None = None,
         *,
+        summarizer: MemorySummarizer | None = None,
         retention_days: int | None = None,
         max_backups: int | None = None,
     ):
         self.memory = memory
         self.bot = bot
+        self.summarizer = summarizer
         self.backup_dir = self.memory.memory_path / ".backups"
         self.retention_days = retention_days or int(getattr(settings, "memory_backup_retention_days", 30) or 30)
         self.max_backups = max_backups or int(getattr(settings, "memory_backup_max_count", 60) or 60)
@@ -112,9 +115,12 @@ class ReliabilityGuardian:
     async def run(self) -> IntegrityReport:
         log.info("Reliability Guardian: running memory integrity check...")
         repaired = self.repair_malformed_reminder_blocks()
+        refreshed = await self.refresh_stale_summaries()
         report = self.scan()
         if repaired:
             report.info.append(f"Repaired malformed reminder blocks: {repaired}")
+        if refreshed:
+            report.info.append("Refreshed stale summaries: " + ", ".join(refreshed))
         backup_path = self.create_backup()
         report.info.append(f"Backup created: {backup_path.name}")
 
@@ -146,6 +152,41 @@ class ReliabilityGuardian:
         if report.ok:
             lines.append("\n" + t("guardian.footer"))
         return "\n".join(lines)
+
+    async def refresh_stale_summaries(self) -> list[str]:
+        """Regenerate summaries whose source file changed since the cache was written.
+
+        High-churn categories (reminders, energy_log) go stale almost nightly,
+        so healing them here keeps the report's warnings reserved for problems
+        that actually need the owner's attention.
+        """
+        if not self.summarizer:
+            return []
+        refreshed: list[str] = []
+        for category in self._stale_summary_categories():
+            try:
+                await self.summarizer.refresh_async(category)
+                refreshed.append(category)
+            except Exception as exc:
+                log.debug(f"Could not refresh summary for {category}: {exc}")
+        return refreshed
+
+    def _stale_summary_categories(self) -> list[str]:
+        stale: list[str] = []
+        summaries = self.memory.memory_path / ".summaries"
+        for category, filename in MEMORY_FILES.items():
+            source = self.memory.memory_path / filename
+            meta = summaries / f"{category}.meta.json"
+            if not source.is_file() or not meta.is_file():
+                continue
+            try:
+                data = json.loads(meta.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                stale.append(category)
+                continue
+            if data.get("source_hash") != hashlib.sha1(source.read_bytes()).hexdigest():
+                stale.append(category)
+        return stale
 
     def latest_manifest(self) -> dict | None:
         manifests = sorted(self.backup_dir.glob("*.manifest.json"), key=lambda path: path.stat().st_mtime)

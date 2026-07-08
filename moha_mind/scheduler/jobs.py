@@ -43,7 +43,7 @@ class SchedulerJobs:
         self.social_pulse = SocialPulse(memory, bot)
         self.reminder_engine = ReminderEngine(memory, bot)
         self.memory_consolidator = MemoryConsolidator(agent, memory, bot)
-        self.reliability_guardian = ReliabilityGuardian(memory, bot)
+        self.reliability_guardian = ReliabilityGuardian(memory, bot, summarizer=agent.summarizer)
 
     def setup(self) -> None:
         """Register all scheduled jobs."""

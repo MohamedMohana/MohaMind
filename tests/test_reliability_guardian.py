@@ -83,3 +83,49 @@ class TestReliabilityGuardian:
         assert report.info
         assert list((tmp_memory.memory_path / ".backups").glob("*.zip"))
         bot.send_message.assert_called()
+
+
+class TestSummarySelfHealing:
+    def _make_stale_summaries(self, tmp_memory, categories):
+        from moha_mind.agent.memory_summarizer import MemorySummarizer
+
+        summarizer = MemorySummarizer(tmp_memory)
+        for category in categories:
+            tmp_memory.write(category, f"# {category}\n\n- original entry\n")
+            summarizer.get_summary(category)  # caches summary + hash
+            tmp_memory.append(category, "- newer entry the cache has not seen\n")
+        return summarizer
+
+    @pytest.mark.asyncio
+    async def test_run_heals_stale_summaries_instead_of_warning(self, tmp_memory):
+        summarizer = self._make_stale_summaries(tmp_memory, ["reminders", "energy_log"])
+        guardian = ReliabilityGuardian(tmp_memory, _make_mock_bot(), summarizer=summarizer)
+
+        report = await guardian.run()
+
+        assert not any("Summary cache is stale" in item for item in report.warnings)
+        assert any("Refreshed stale summaries" in item for item in report.info)
+        healed = next(item for item in report.info if "Refreshed stale summaries" in item)
+        assert "reminders" in healed and "energy_log" in healed
+        # The caches now match their sources again.
+        assert guardian._stale_summary_categories() == []
+
+    @pytest.mark.asyncio
+    async def test_run_without_summarizer_still_warns(self, tmp_memory):
+        self._make_stale_summaries(tmp_memory, ["reminders"])
+        guardian = ReliabilityGuardian(tmp_memory, _make_mock_bot())
+
+        report = await guardian.run()
+
+        assert any("Summary cache is stale: reminders" in item for item in report.warnings)
+
+    @pytest.mark.asyncio
+    async def test_healing_failure_leaves_warning_in_place(self, tmp_memory):
+        summarizer = self._make_stale_summaries(tmp_memory, ["reminders"])
+        summarizer.refresh_async = AsyncMock(side_effect=RuntimeError("llm down"))
+        guardian = ReliabilityGuardian(tmp_memory, _make_mock_bot(), summarizer=summarizer)
+
+        report = await guardian.run()
+
+        assert any("Summary cache is stale: reminders" in item for item in report.warnings)
+        assert not any("Refreshed stale summaries" in item for item in report.info)
