@@ -1,15 +1,20 @@
 """Generate the animated MohaMind README banner (docs/assets/banner.svg).
 
-Hermes-style: blue field #0000f2, off-white figlet wordmark, chartreuse
-slogan, and an animated brain (breathing pulse, glow, neural sparks).
-Regenerate with:  uv run python .github/readme_banner_generator.py
+Hermes-style, inverted: chartreuse field #edff45, hermes-blue #0000f2
+wordmark and slogan, and an animated brain (breathing pulse, glow,
+neural sparks).  Regenerate with:
+
+    uv run python .github/readme_banner_generator.py
 """
+
+import pathlib
+
 import pyfiglet
 
 lines = pyfiglet.figlet_format("MohaMind", font="ansi_shadow", width=200).split("\n")
-lines = [l for l in lines if l.strip()]
-width = max(len(l) for l in lines)
-lines = [l.ljust(width) for l in lines]
+lines = [line for line in lines if line.strip()]
+width = max(len(line) for line in lines)
+lines = [line.ljust(width) for line in lines]
 print("figlet:", len(lines), "rows x", width, "cols")
 
 FS = 20          # wordmark font size
@@ -17,20 +22,23 @@ LH = 18.6        # line height
 X0, Y0 = 52, 96  # wordmark origin
 TEXTLEN = width * FS * 0.6
 
-def esc(s):
+
+def esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+
 wordmark = "\n".join(
-    f'<text x="{X0}" y="{Y0 + i*LH:.1f}" xml:space="preserve" class="wm" '
-    f'textLength="{TEXTLEN:.0f}" lengthAdjust="spacingAndGlyphs">{esc(l)}</text>'
-    for i, l in enumerate(lines)
+    f'<text x="{X0}" y="{Y0 + i * LH:.1f}" xml:space="preserve" class="wm" '
+    f'textLength="{TEXTLEN:.0f}" lengthAdjust="spacingAndGlyphs">{esc(line)}</text>'
+    for i, line in enumerate(lines)
 )
 
-svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 320" font-family="ui-monospace, 'Menlo', 'Consolas', 'Courier New', monospace">
+svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 320"
+     font-family="ui-monospace, 'Menlo', 'Consolas', 'Courier New', monospace">
   <defs>
     <linearGradient id="wmg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#c9c9ff"/>
+      <stop offset="0" stop-color="#0000f2"/>
+      <stop offset="1" stop-color="#2a2ac0"/>
     </linearGradient>
     <linearGradient id="brg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#8fb0ff"/>
@@ -38,9 +46,9 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org
       <stop offset="1" stop-color="#b07cf0"/>
     </linearGradient>
     <radialGradient id="glow">
-      <stop offset="0" stop-color="#edff45" stop-opacity="0.55"/>
-      <stop offset="0.6" stop-color="#8a8aff" stop-opacity="0.25"/>
-      <stop offset="1" stop-color="#0000f2" stop-opacity="0"/>
+      <stop offset="0" stop-color="#7a7aff" stop-opacity="0.5"/>
+      <stop offset="0.65" stop-color="#b07cf0" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#edff45" stop-opacity="0"/>
     </radialGradient>
     <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
       <feGaussianBlur stdDeviation="3"/>
@@ -48,17 +56,17 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org
   </defs>
   <style>
     .wm {{ font-size: {FS}px; fill: url(#wmg); font-weight: bold; }}
-    .slogan {{ font-size: 23px; font-style: italic; fill: #edff45; }}
-    .orn {{ font-size: 16px; fill: #8a8aff; }}
+    .slogan {{ font-size: 23px; font-style: italic; fill: #0000f2; font-weight: bold; }}
+    .orn {{ font-size: 16px; fill: #0000f2; opacity: 0.55; }}
     .gyri {{ fill: none; stroke: #232399; stroke-width: 4.5; stroke-linecap: round; }}
     .hilite {{ fill: none; stroke: #f5f5f5; stroke-width: 2; stroke-linecap: round; opacity: 0.35; }}
-    .spark {{ fill: #edff45; }}
+    .spark {{ fill: #ffffff; stroke: #0000f2; stroke-width: 1; }}
   </style>
 
-  <rect x="2" y="2" width="1196" height="316" rx="14" fill="#0000f2" stroke="#edff45" stroke-width="3"/>
+  <rect x="2" y="2" width="1196" height="316" rx="14" fill="#edff45" stroke="#0000f2" stroke-width="4"/>
 
   <text x="52" y="48" xml:space="preserve" class="orn">/\\-_=+|&lt;  -/=  ~:*-/
-    <animate attributeName="opacity" values="0.5;1;0.5" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.35;0.75;0.35" dur="6s" repeatCount="indefinite"/>
   </text>
 
 {wordmark}
@@ -68,7 +76,8 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org
   <!-- ══ Brain ══ (local coords translated into place, breathing pulse) -->
   <g transform="translate(990,155)">
     <g transform="scale(0.88)">
-      <animateTransform attributeName="transform" type="scale" values="1;1.035;1" dur="4s" additive="sum" repeatCount="indefinite"/>
+      <animateTransform attributeName="transform" type="scale" values="1;1.035;1"
+                        dur="4s" additive="sum" repeatCount="indefinite"/>
       <g transform="translate(-110,-92)">
 
         <ellipse cx="110" cy="92" rx="128" ry="104" fill="url(#glow)">
@@ -130,7 +139,6 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org
 </svg>
 '''
 
-import pathlib
 out = pathlib.Path("docs/assets")
 out.mkdir(parents=True, exist_ok=True)
 (out / "banner.svg").write_text(svg, encoding="utf-8")

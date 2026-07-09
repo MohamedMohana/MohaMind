@@ -14,7 +14,7 @@ from rich.text import Text
 from moha_mind.agent.core import MohaMindAgent
 from moha_mind.agent.energy_tracker import EnergyTracker
 from moha_mind.agent.memory import MemoryManager
-from moha_mind.cli.banner import build_banner
+from moha_mind.cli.banner import animate_banner
 from moha_mind.cli.commands import Command, CommandRegistry
 from moha_mind.cli.display import (
     display_attention_radar,
@@ -835,7 +835,8 @@ class MohaMindCLI:
 
         time_display = f"{ksa_date_display()} • {ksa_time_str()}"
 
-        banner = build_banner(
+        animate_banner(
+            self.console,
             version="0.1.0",
             model=self.agent.model,
             provider=self.agent.provider,
@@ -848,7 +849,6 @@ class MohaMindCLI:
             google_enabled=Path(settings.google_credentials_path).exists() or Path(settings.google_token_path).exists(),
             microsoft_enabled=bool(settings.ms_client_id),
         )
-        self.console.print(banner)
 
     async def _handle_command(self, text: str) -> bool:
         if not text.startswith("/"):
