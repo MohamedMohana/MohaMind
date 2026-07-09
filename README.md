@@ -967,9 +967,10 @@ MohaMind/
 ## Troubleshooting
 
 - Run `uv run mohamind doctor` to check `.env`, API keys, memory, and credentials directories.
-- Logs live at `~/.mohamind/logs/mohamind.log` (rotated, timestamps in your `TIMEZONE`).
-  The interactive CLI keeps the terminal clean and logs only to the file — use `/logs [n]`
-  to see recent lines. `mohamind --bot` also logs to the console so systemd/docker capture it.
+- Logs live in the project at `logs/mohamind.log` (gitignored, rotated, timestamps in your
+  `TIMEZONE`; move them with `LOG_DIR` in `.env`). The interactive CLI keeps the terminal
+  clean and logs only to the file — use `/logs [n]` to see recent lines. `mohamind --bot`
+  also logs to the console so systemd/docker capture it.
 - If you only want the CLI, leave Telegram blank.
 - If calendars are not configured, the app still runs. Calendar commands simply show those integrations as unavailable.
 - If you want to reset session history, remove `memory/sessions.db`.

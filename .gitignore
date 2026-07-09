@@ -21,6 +21,9 @@ credentials/
 # External MCP server config may embed API keys — keep it local.
 mcp_servers.json
 
+# Runtime logs (rotated by the app)
+logs/
+
 # Memory — PRIVATE. Ignore EVERYTHING under memory/ by default.
 # Personal life data (health, finances, family, conversations, etc.) lives
 # here and must never leave the local machine. The only things tracked

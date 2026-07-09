@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     mcp_servers_config: str = "./mcp_servers.json"
 
     log_level: str = "INFO"
+    # Rotating log files live here (gitignored), next to memory/.
+    log_dir: str = "./logs"
 
     # ----- Memory router + summaries (Phase A) -----
     # When enabled, the system prompt stops pasting every category in full

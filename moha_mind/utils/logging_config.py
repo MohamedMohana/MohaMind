@@ -7,9 +7,10 @@ never lost. Entry points then call configure_logging() to pick a mode:
     daemon -> console + file; systemd/docker still capture stdout
     quiet  -> file only; one-shot mode where stdout is the answer
 
-The file lives at ~/.mohamind/logs/mohamind.log (rotated, 5 MB x 3) and
-timestamps are in the agent's timezone (TIMEZONE, default Asia/Riyadh),
-matching what the CLI and scheduler display.
+The file lives in the project at ./logs/mohamind.log (gitignored,
+rotated 5 MB x 3, LOG_DIR to relocate) and timestamps are in the
+agent's timezone (TIMEZONE, default Asia/Riyadh), matching what the
+CLI and scheduler display.
 """
 
 import logging
@@ -20,7 +21,7 @@ from pathlib import Path
 
 from moha_mind.config import settings
 
-LOG_DIR = Path.home() / ".mohamind" / "logs"
+LOG_DIR = Path(settings.log_dir)
 LOG_FILE = LOG_DIR / "mohamind.log"
 
 _MAX_BYTES = 5_000_000
