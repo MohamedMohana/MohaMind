@@ -131,6 +131,9 @@ class MohaMindCLI:
             Command(name="mcp", description="Show external MCP servers and their tools", handler=self._cmd_mcp)
         )
         self.registry.register(
+            Command(name="logs", description="Show recent log lines: /logs [n]", handler=self._cmd_logs)
+        )
+        self.registry.register(
             Command(
                 name="majlis",
                 description="Open MohaMind command center",
@@ -580,6 +583,29 @@ class MohaMindCLI:
             )
 
         self.console.print(hermes_panel(table, "mcp servers", theme))
+        return None
+
+    async def _cmd_logs(self, args: str = "") -> str | None:
+        from moha_mind.utils.logging_config import LOG_FILE
+
+        theme = get_theme(self._current_mood())
+        count = int(args.strip()) if args.strip().isdigit() else 20
+
+        if not LOG_FILE.exists():
+            self.console.print(display_success(f"No log file yet ({LOG_FILE})."))
+            return None
+
+        lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()[-count:]
+        body = Text()
+        for line in lines:
+            style = theme["dim"]
+            if " ERROR " in line:
+                style = "bold red"
+            elif " WARNING " in line:
+                style = f"bold {theme['accent']}"
+            body.append(line + "\n", style=style)
+
+        self.console.print(hermes_panel(body, f"logs · last {len(lines)} · {LOG_FILE}", theme))
         return None
 
     async def _cmd_majlis(self, args: str = "") -> str | None:

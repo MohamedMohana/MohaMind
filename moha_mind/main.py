@@ -18,7 +18,7 @@ import signal
 import sys
 from pathlib import Path
 
-from moha_mind.utils.logging_config import log
+from moha_mind.utils.logging_config import configure_logging, log
 
 
 def _parse_args():
@@ -342,12 +342,19 @@ def run() -> None:
 
     try:
         if args.bot:
+            # Daemon: console for systemd/docker capture, plus the log file.
+            configure_logging("daemon")
             asyncio.run(run_bot_only())
         elif args.one_shot:
+            # One-shot: stdout is the answer, logs go to the file.
+            configure_logging("quiet")
             asyncio.run(run_one_shot(args.one_shot))
         elif args.all_services:
+            # Interactive CLI owns the terminal; logs go to the file.
+            configure_logging("cli")
             asyncio.run(run_cli(with_bot=True, initial_prompt=args.prompt))
         else:
+            configure_logging("cli")
             asyncio.run(run_cli(with_bot=False, initial_prompt=args.prompt))
     except KeyboardInterrupt:
         pass

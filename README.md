@@ -362,6 +362,7 @@ MohaMind is designed to behave predictably, but reliable automation still depend
 | `/recall <query>` | Search memory and past conversations |
 | `/memory` | Preview memory files |
 | `/mcp` | Show external MCP servers and their tools |
+| `/logs [n]` | Show the last n log lines (default 20) |
 | `/expiring` | Show expiring documents and renewals |
 | `/briefing` | Generate the daily briefing |
 | `/review` | Generate the weekly review |
@@ -966,6 +967,9 @@ MohaMind/
 ## Troubleshooting
 
 - Run `uv run mohamind doctor` to check `.env`, API keys, memory, and credentials directories.
+- Logs live at `~/.mohamind/logs/mohamind.log` (rotated, timestamps in your `TIMEZONE`).
+  The interactive CLI keeps the terminal clean and logs only to the file — use `/logs [n]`
+  to see recent lines. `mohamind --bot` also logs to the console so systemd/docker capture it.
 - If you only want the CLI, leave Telegram blank.
 - If calendars are not configured, the app still runs. Calendar commands simply show those integrations as unavailable.
 - If you want to reset session history, remove `memory/sessions.db`.
@@ -975,7 +979,7 @@ MohaMind/
 
 Current local verification:
 
-- `uv run pytest -q` -> `567 passed`
+- `uv run pytest -q` -> `595 passed`
 - `uv run ruff check .` -> clean
 
 ## Development
