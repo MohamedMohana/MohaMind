@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from moha_mind import __version__
 from moha_mind.agent.core import MohaMindAgent
 from moha_mind.agent.energy_tracker import EnergyTracker
 from moha_mind.agent.memory import MemoryManager
@@ -889,7 +890,7 @@ class MohaMindCLI:
 
         animate_banner(
             self.console,
-            version="0.1.0",
+            version=__version__,
             model=self.agent.model,
             provider=self.agent.provider,
             timezone=settings.timezone,

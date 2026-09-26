@@ -139,52 +139,67 @@ class ExternalMCPConnection:
         self.session: Any = None
         self.tools: list[Any] = []
         self.error: str = ""
-        self._stack: AsyncExitStack | None = None
+        self._task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
 
     @property
     def connected(self) -> bool:
         return self.session is not None
 
     async def connect(self) -> None:
+        self._stop.clear()
+        ready = asyncio.get_running_loop().create_future()
+        self._task = asyncio.create_task(self._run(ready))
+        try:
+            await ready
+        except BaseException:
+            self._task.cancel()
+            await self.aclose()
+            raise
+
+    async def _run(self, ready: asyncio.Future) -> None:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
-        stack = AsyncExitStack()
         try:
-            if self.config.transport == "http":
-                from mcp.client.streamable_http import streamablehttp_client
+            async with AsyncExitStack() as stack:
+                if self.config.transport == "http":
+                    from mcp.client.streamable_http import streamablehttp_client
 
-                read, write, _ = await stack.enter_async_context(
-                    streamablehttp_client(self.config.url, headers=self.config.headers or None)
-                )
+                    read, write, _ = await stack.enter_async_context(
+                        streamablehttp_client(self.config.url, headers=self.config.headers or None)
+                    )
+                else:
+                    params = StdioServerParameters(
+                        command=self.config.command,
+                        args=self.config.args,
+                        env={**os.environ, **self.config.env},
+                    )
+                    read, write = await stack.enter_async_context(stdio_client(params))
+
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                tools_result = await session.list_tools()
+                self.session = session
+                self.tools = list(tools_result.tools)
+                ready.set_result(None)
+                await self._stop.wait()
+        except Exception as exc:
+            self.error = str(exc) or type(exc).__name__
+            if not ready.done():
+                ready.set_exception(exc)
             else:
-                params = StdioServerParameters(
-                    command=self.config.command,
-                    args=self.config.args,
-                    env={**os.environ, **self.config.env},
-                )
-                read, write = await stack.enter_async_context(stdio_client(params))
-
-            session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
-            tools_result = await session.list_tools()
-        except BaseException:
-            await stack.aclose()
-            raise
-
-        self._stack = stack
-        self.session = session
-        self.tools = list(tools_result.tools)
+                log.warning(f"MCP server '{self.config.name}' connection ended: {exc}")
+        finally:
+            self.session = None
+            if not ready.done():
+                ready.cancel()
 
     async def aclose(self) -> None:
-        if self._stack is not None:
-            try:
-                await self._stack.aclose()
-            except Exception as exc:
-                log.debug(f"Closing MCP server '{self.config.name}' raised: {exc}")
-            finally:
-                self._stack = None
-                self.session = None
+        if self._task is not None:
+            self._stop.set()
+            await asyncio.gather(self._task, return_exceptions=True)
+            self._task = None
 
 
 class ExternalMCPManager:

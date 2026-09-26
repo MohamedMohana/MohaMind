@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mohamind"
-version = "0.1.0"
+version = "0.3.0"
 description = "MohaMind - Your personal AI agent that knows everything about you"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -51,6 +51,9 @@ target-version = "py312"
 
 [tool.setuptools.packages.find]
 include = ["moha_mind*"]
+
+[tool.setuptools.package-data]
+"moha_mind.whatsapp_bot" = ["bridge/*.mjs", "bridge/package.json", "bridge/package-lock.json"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]

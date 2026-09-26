@@ -1,6 +1,8 @@
 """Tests for the external MCP client layer (config, naming, registration)."""
 
+import asyncio
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -197,6 +199,52 @@ class TestStatus:
 
 
 class TestConnectAll:
+    async def test_real_stdio_connections_survive_startup_and_close_from_another_task(self, tmp_path):
+        server = tmp_path / "server.py"
+        server.write_text(
+            "from mcp.server.fastmcp import FastMCP\n"
+            "mcp = FastMCP('test')\n"
+            "@mcp.tool()\n"
+            "def echo(value: str) -> str:\n"
+            "    return value\n"
+            "mcp.run()\n"
+        )
+        mgr = ExternalMCPManager(
+            [
+                ExternalServerConfig(name=name, command=sys.executable, args=[str(server)])
+                for name in ("first", "second")
+            ]
+        )
+        try:
+            await mgr.connect_all(timeout=15)
+            assert all(connection.connected for connection in mgr.connections.values())
+            agent = FakeAgent()
+            assert mgr.register_into(agent) == 2
+            for handler, _ in agent.tools.values():
+                assert await handler(value="still connected") == "still connected"
+        finally:
+            await asyncio.create_task(mgr.aclose())
+        assert all(not connection.connected for connection in mgr.connections.values())
+        assert all(not connection.error for connection in mgr.connections.values())
+        await mgr.aclose()
+
+    async def test_startup_timeout_cleans_up_connection(self):
+        mgr = ExternalMCPManager(
+            [
+                ExternalServerConfig(
+                    name="slow",
+                    command=sys.executable,
+                    args=["-c", "import asyncio; asyncio.run(asyncio.sleep(60))"],
+                )
+            ]
+        )
+        await mgr.connect_all(timeout=0.1)
+        connection = mgr.connections["slow"]
+        assert not connection.connected
+        assert connection.error.startswith("timed out")
+        assert connection._task is None
+        await mgr.aclose()
+
     async def test_unconfigured_server_marked_failed(self):
         mgr = ExternalMCPManager([ExternalServerConfig(name="empty")])
         await mgr.connect_all(timeout=1)

@@ -34,6 +34,7 @@ credentials/
 *.flac
 models/
 backups/
+node_modules/
 # External MCP server config may embed API keys — keep it local.
 mcp_servers.json
 

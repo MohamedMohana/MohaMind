@@ -32,98 +32,33 @@ def _parse_args():
     parser.add_argument("--bot", action="store_true", help="Start Telegram bot daemon (no CLI)")
     parser.add_argument("--all", dest="all_services", action="store_true", help="CLI + Telegram bot together")
     parser.add_argument("--quick", action="store_true", help="Quick setup (skip optional fields)")
+    parser.add_argument("--schedule", action="store_true", help="Enable scheduled notifications in WhatsApp mode")
     parser.add_argument("--minutes", type=int, default=60, help="Focus/demo time budget, 5–480 minutes")
     parser.add_argument("--energy", choices=["low", "neutral", "high"], default="neutral", help="Focus/demo energy")
     parser.add_argument("--json", action="store_true", help="Print focus/demo as JSON")
-    parser.add_argument("command", nargs="?", default=None, help="Subcommand: setup, doctor, focus, demo")
+    parser.add_argument(
+        "command", nargs="?", default=None, help="Subcommand: setup, doctor, focus, demo, whatsapp [setup]"
+    )
 
     known, _ = parser.parse_known_args()
     return known
 
 
 def _has_api_key():
-    env_path = Path(".env")
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("ZAI_API_KEY=") and len(line.split("=", 1)[1].strip()) > 5:
-                return True
-            if line.startswith("OPENAI_API_KEY=") and len(line.split("=", 1)[1].strip()) > 5:
-                return True
-    for key in ("ZAI_API_KEY", "OPENAI_API_KEY"):
-        val = __import__("os").environ.get(key, "")
-        if val and len(val) > 5:
-            return True
-    return False
+    from moha_mind.cli.setup_wizard import SetupWizard, is_configured_key
+
+    config = SetupWizard()._load_existing()
+    return any(is_configured_key(config.get(key, "")) for key in ("ZAI_API_KEY", "OPENAI_API_KEY"))
 
 
 def _first_run_auth():
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.prompt import Confirm, Prompt
+    from moha_mind.cli.setup_wizard import run_setup
+    from moha_mind.config import Settings, settings
 
-    console = Console()
-
-    console.print(
-        Panel(
-            "[bold]Welcome to MohaMind![/]\n\n"
-            "No API key found. Let's get you set up in 30 seconds.\n"
-            "Your key is saved to [bold].env[/] (never committed to git).",
-            border_style="cyan",
-            padding=(1, 2),
-        )
-    )
-
-    providers = {"1": ("z.ai (GLM)", "zai"), "2": ("OpenAI", "openai")}
-    console.print("\n  [bold]Choose your AI provider:[/]")
-    console.print("  [cyan]1[/] z.ai (GLM) - recommended, cost-effective")
-    console.print("  [cyan]2[/] OpenAI (GPT-4)")
-    choice = Prompt.ask("  Choice", choices=["1", "2"], default="1", console=console)
-
-    provider = providers[choice][1]
-    key_name = "z.ai" if provider == "zai" else "OpenAI"
-    key_url = "https://z.ai" if provider == "zai" else "https://platform.openai.com/api-keys"
-    env_key = "ZAI_API_KEY" if provider == "zai" else "OPENAI_API_KEY"
-
-    console.print(f"\n  Get your key from [bold cyan]{key_url}[/]")
-    api_key = Prompt.ask(f"  {key_name} API key", console=console)
-
-    if not api_key.strip():
-        console.print("[red]No key provided. Run [bold]mohamind setup[/] when ready.[/]")
-        sys.exit(1)
-
-    tz = Prompt.ask("  Your timezone", default="Asia/Riyadh", console=console)
-
-    lines = [
-        f"PRIMARY_LLM={provider}",
-        f"{env_key}={api_key.strip()}",
-        f"FALLBACK_LLM={'openai' if provider == 'zai' else 'zai'}",
-        f"TIMEZONE={tz}",
-        "MORNING_BRIEFING_TIME=08:00",
-        # Memory defaults — router+summaries on, advanced features off until opted in.
-        "MEMORY_ROUTER_ENABLED=true",
-        "MEMORY_SUMMARIES_ENABLED=true",
-        "EMBEDDING_BACKEND=none",
-        "CONSOLIDATOR_ENABLED=false",
-        "CONSOLIDATOR_MODE=hybrid",
-        "CONSOLIDATOR_TIME=02:30",
-        "SENSITIVE_CATEGORIES=finances,health,documents",
-    ]
-    Path(".env").write_text("\n".join(lines) + "\n")
-
-    console.print(Panel("[bold green]Saved![/] You're ready to go.\n", border_style="green", padding=(0, 2)))
-
-    console.print(
-        "  [dim]Tip: run [/][bold cyan]mohamind setup[/] [dim]anytime to enable semantic search,\n"
-        "  the nightly memory consolidator, and Telegram.[/]\n"
-    )
-
-    tg = Confirm.ask("  Configure Telegram bot now? (optional)", default=False, console=console)
-    if tg:
-        from moha_mind.cli.setup_wizard import SetupWizard
-
-        wizard = SetupWizard(console)
-        wizard.run(quick=True)
+    run_setup(quick=True)
+    updated = Settings()
+    for name in Settings.model_fields:
+        setattr(settings, name, getattr(updated, name))
 
 
 async def bootstrap(require_telegram: bool = False):
@@ -328,6 +263,27 @@ def run() -> None:
 
     command = args.prompt if not (args.one_shot is not None or args.bot or args.all_services) else None
 
+    if args.schedule and command != "whatsapp":
+        print("Use --schedule with: uv run mohamind whatsapp --schedule", file=sys.stderr)
+        sys.exit(2)
+
+    if command == "whatsapp":
+        if args.command not in (None, "setup"):
+            print("Usage: mohamind whatsapp [setup] [--schedule]", file=sys.stderr)
+            sys.exit(2)
+        if args.command == "setup":
+            from moha_mind.whatsapp_bot.bot import run_whatsapp
+
+            configure_logging("quiet")
+            try:
+                asyncio.run(run_whatsapp(pair=True))
+            except KeyboardInterrupt:
+                pass
+            except (RuntimeError, OSError) as exc:
+                print(str(exc), file=sys.stderr)
+                sys.exit(1)
+            return
+
     if command in {"focus", "demo"}:
         from pydantic import ValidationError
 
@@ -345,24 +301,45 @@ def run() -> None:
     if command == "setup":
         from moha_mind.cli.setup_wizard import run_setup
 
-        run_setup(quick="--quick" in sys.argv)
+        try:
+            run_setup(quick=args.quick)
+        except (EOFError, KeyboardInterrupt):
+            print("\nSetup cancelled. Run: uv run mohamind setup --quick")
+            sys.exit(1)
         return
 
     if command == "doctor":
         from moha_mind.cli.setup_wizard import run_doctor
 
-        run_doctor()
+        if not run_doctor():
+            sys.exit(1)
         return
 
     if not _has_api_key():
+        if not sys.stdin.isatty() or args.bot or args.one_shot is not None:
+            print(
+                "No API key configured. Run: uv run mohamind setup --quick\n"
+                "To try MohaMind without a key: uv run mohamind demo",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         try:
             _first_run_auth()
         except (EOFError, KeyboardInterrupt):
-            print("\nRun: mohamind setup")
-            sys.exit(0)
+            print("\nSetup cancelled. Run: uv run mohamind setup --quick")
+            sys.exit(1)
 
     try:
-        if args.bot:
+        if command == "whatsapp":
+            from moha_mind.whatsapp_bot.bot import run_whatsapp
+
+            configure_logging("quiet")
+            try:
+                asyncio.run(run_whatsapp(schedule=args.schedule))
+            except (RuntimeError, OSError) as exc:
+                print(str(exc), file=sys.stderr)
+                sys.exit(1)
+        elif args.bot:
             # Daemon: console for systemd/docker capture, plus the log file.
             configure_logging("daemon")
             asyncio.run(run_bot_only())
