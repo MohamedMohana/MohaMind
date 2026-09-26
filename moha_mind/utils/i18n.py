@@ -24,6 +24,47 @@ def agent_language() -> str:
 
 
 CATALOG: dict[str, dict[str, str]] = {
+    "voice.disabled": {
+        "ar": "الرسائل الصوتية غير مفعّلة. يمكن تفعيلها عبر VOICE_ENABLED=true بعد تثبيت uv sync --extra voice.",
+        "en": "Voice is disabled. Install uv sync --extra voice and set VOICE_ENABLED=true to enable it.",
+    },
+    "voice.unavailable": {
+        "ar": "مكتبة الصوت غير مثبتة. شغّل uv sync --extra voice ثم أعد تشغيل المساعد.",
+        "en": "Voice dependencies are missing. Run uv sync --extra voice and restart the agent.",
+    },
+    "voice.processing": {
+        "ar": "جارٍ تحويل الصوت إلى نص محليًا. قد يستغرق الاستخدام الأول وقتًا لتنزيل النموذج.",
+        "en": "Transcribing locally. First use may take longer while the model downloads.",
+    },
+    "voice.too_large": {
+        "ar": "حجم الملف يتجاوز الحد المسموح أو غير معروف. أرسل تسجيلًا أصغر.",
+        "en": "The file exceeds the size limit or its size is unknown. Please send a smaller recording.",
+    },
+    "voice.too_long": {
+        "ar": "التسجيل يتجاوز المدة المسموحة. أرسل تسجيلًا أقصر.",
+        "en": "The recording exceeds the duration limit. Please send a shorter recording.",
+    },
+    "voice.no_speech": {
+        "ar": "لم أتمكن من التقاط كلام واضح. حاول التسجيل مرة أخرى أو اكتب رسالتك.",
+        "en": "No speech was detected. Try recording again or type your message.",
+    },
+    "voice.failed": {
+        "ar": "تعذّرت معالجة الرسالة الصوتية. اكتب رسالتك أو تحقق من إعدادات نموذج الصوت.",
+        "en": "Could not process this voice request. Type your message or check the voice model settings.",
+    },
+    "voice.preview": {"ar": "النص المستخرج من التسجيل:", "en": "Transcript:"},
+    "voice.review": {
+        "ar": "راجع النص قبل إرساله للمساعد. للإصلاح، ألغِ الطلب واكتب النص الصحيح. ينتهي الطلب بعد 5 دقائق.",
+        "en": "Review before sending to the agent. To correct it, cancel and type your message. Expires in 5 minutes.",
+    },
+    "voice.confirm": {"ar": "إرسال للمساعد", "en": "Send to agent"},
+    "voice.cancel": {"ar": "إلغاء", "en": "Cancel"},
+    "voice.cancelled": {"ar": "أُلغي الطلب الصوتي.", "en": "Voice request cancelled."},
+    "voice.sent": {"ar": "أُرسل النص للمساعد.", "en": "Transcript sent to the agent."},
+    "voice.expired": {
+        "ar": "انتهى هذا الطلب أو لا يخص هذه المحادثة. أرسل تسجيلًا جديدًا.",
+        "en": "This request expired or belongs to another chat. Send a new recording.",
+    },
     # ----- Telegram command instruction -----
     "agent.instruction": {
         "ar": (

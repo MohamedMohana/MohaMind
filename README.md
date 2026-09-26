@@ -15,6 +15,7 @@ MohaMind is a CLI-first personal AI agent built for real life operations — rem
 - Reliable reminders scheduled in KSA time (Asia/Riyadh)
 - Arabic and English conversation, including Gulf/Saudi dialect
 - Telegram access alongside the local CLI
+- Optional local Arabic/English speech-to-text for Telegram voice notes and audio files
 - Proactive daily briefings, weekly reviews, and expiry alerts
 
 MohaMind uses z.ai (GLM) by default and can use OpenAI as:
@@ -43,6 +44,7 @@ tasks and reminders, entirely on your machine.
 - [Reliability Notes](#reliability-notes)
 - [Core CLI Commands](#core-cli-commands)
 - [Telegram Usage](#telegram-usage)
+- [Voice Input (STT Only)](#voice-input-stt-only)
 - [Scheduler And Proactive Behavior](#scheduler-and-proactive-behavior)
 - [Memory Model](#memory-model)
 - [Advanced Memory Features](#advanced-memory-features)
@@ -476,7 +478,15 @@ Telegram bots are publicly discoverable, but MohaMind's memory is personal. The 
 - `TELEGRAM_CHAT_ID` — your own chat (also where proactive alerts go)
 - `TELEGRAM_ALLOWED_USER_IDS` — optional comma-separated extra user IDs (e.g. a spouse)
 
-Anyone else gets a polite refusal and is logged; they never reach the agent, your memory, or your API keys. If `TELEGRAM_CHAT_ID` is empty, the bot stays fully locked and replies to any message with the chat ID you should paste into `.env` — which is also the easiest way to find your ID.
+Only private chats with an allowed sender can reach the agent. Groups, supergroups,
+channels, and anonymous senders are blocked, including when the owner sends the
+message. Proactive messages also require a private chat. Refusals are logged without
+user or chat IDs. With no allowed IDs configured, a private message shows the ID to
+paste into `.env`.
+
+**One installation is one personal agent.** Extra allowed users share its durable
+memory and tools; this is not a service with isolated accounts. Each person should
+run their own instance with their own bot, credentials, and memory directory.
 
 ### Telegram commands
 
@@ -496,6 +506,56 @@ Anyone else gets a polite refusal and is logged; they never reach the agent, you
 | `/health`, `/family`, `/social`, `/car`, `/pay`, `/expiry [days]`, `/shopping` | Domain summaries |
 
 Destructive commands (`/forget`, `/untask`, `/delete_note`) always ask for inline-keyboard confirmation before anything is removed from disk. Set `TELEGRAM_ALLOW_DESTRUCTIVE=false` in `.env` to disable them entirely.
+
+## Voice Input (STT Only)
+
+MohaMind can transcribe Telegram voice notes and audio uploads locally with
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper), an open-source Whisper
+implementation. This is **speech-to-text only**; replies remain text.
+
+```bash
+uv sync --extra voice
+```
+
+Set these values in your local `.env`, then restart the bot:
+
+```dotenv
+VOICE_ENABLED=true
+VOICE_MODEL=small
+VOICE_DEVICE=cpu
+VOICE_COMPUTE_TYPE=int8
+VOICE_LANGUAGE=auto
+```
+
+Send a recording in your private bot chat. Review the transcript and tap **Send to
+agent**, or cancel and type a correction. Confirmation expires after five minutes;
+a new recording replaces your previous pending transcript. Nothing is sent to the
+agent or executed until you confirm. The confirmation messages follow `AGENT_LANGUAGE`.
+
+`auto` detects the spoken language; `ar` or `en` forces it. Use a multilingual
+model, such as `small`, `medium`, or `large-v3`. English-only `.en` models are
+rejected. Larger models need more memory and time; recognition quality varies
+with dialect, noise, and mixed-language speech, so review the transcript.
+For a suitable NVIDIA GPU, set `VOICE_DEVICE=cuda` and `VOICE_COMPUTE_TYPE=float16`;
+see faster-whisper's documentation for CUDA requirements.
+
+The default limits are 10 MiB and five minutes per recording. Configure them with
+`VOICE_MAX_FILE_MB` and `VOICE_MAX_DURATION_SECONDS`. Decoded duration is checked
+as well as Telegram metadata. Inference runs outside the event loop, with one
+cached model and serialized requests. `VOICE_CPU_THREADS` defaults to 4.
+
+**Privacy:** Telegram receives the recording as part of its messaging service.
+MohaMind downloads it into RAM and transcribes it on your machine, without saving
+an audio file or sending audio to a transcription API. A transcript preview is
+returned through Telegram. After confirmation, text goes to your configured LLM
+and follows normal memory/session behavior. Cancelling does not erase Telegram's
+copy of the recording or preview. The first transcription downloads model weights
+from Hugging Face; set `VOICE_LOCAL_FILES_ONLY=true` after caching them (or point
+`VOICE_MODEL` to a local model directory) to prevent model downloads.
+
+Run voice tests with `uv run --extra voice pytest -q`. Normal installation and
+text chat do not require Whisper. Keep `--extra voice` when syncing a voice-enabled
+installation; plain `uv sync` removes optional packages.
 
 ## Scheduler And Proactive Behavior
 

@@ -2,6 +2,7 @@
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest, Conflict, NetworkError, TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -16,6 +17,7 @@ from moha_mind.agent.memory import MemoryManager
 from moha_mind.config import settings
 from moha_mind.telegram_bot.formatters import format_telegram_html
 from moha_mind.telegram_bot.handlers import Handlers
+from moha_mind.telegram_bot.voice import VoiceHandlers
 from moha_mind.utils.logging_config import log
 
 
@@ -24,6 +26,7 @@ class MohaMindBot:
         self.agent = agent
         self.memory = memory
         self.handlers = Handlers(agent, memory)
+        self.voice_handlers = VoiceHandlers(agent)
         self.app: Application | None = None
 
     def setup(self) -> Application:
@@ -31,7 +34,15 @@ class MohaMindBot:
         if not settings.telegram_bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN not set in .env")
 
-        self.app = Application.builder().token(settings.telegram_bot_token).build()
+        self.app = (
+            Application.builder()
+            .token(settings.telegram_bot_token)
+            .connect_timeout(15)
+            .read_timeout(20)
+            .get_updates_connect_timeout(15)
+            .get_updates_read_timeout(15)
+            .build()
+        )
 
         self._register_handlers()
         return self.app
@@ -82,11 +93,21 @@ class MohaMindBot:
         app.add_handler(CommandHandler("consolidate", self.handlers.consolidate))
         app.add_handler(CommandHandler("pending", self.handlers.pending))
 
+        app.add_handler(CallbackQueryHandler(self.voice_handlers.confirm, pattern=r"^voice:(confirm|cancel):"))
         app.add_handler(CallbackQueryHandler(self.handlers.on_callback))
+        app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, self.voice_handlers.receive))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handlers.message))
 
         app.add_error_handler(self.handlers.error_handler)
         log.info("All Telegram handlers registered")
+
+    def _polling_error(self, error: TelegramError) -> None:
+        if isinstance(error, NetworkError) and not isinstance(error, BadRequest):
+            log.warning("Telegram polling connection failed (%s). Retrying automatically.", error)
+        elif isinstance(error, Conflict):
+            log.error("Telegram polling conflict: stop other instances using this bot token. %s", error)
+        else:
+            log.error("Telegram polling failed: %s", error, exc_info=error)
 
     async def start(self) -> None:
         """Start the bot in polling mode."""
@@ -97,22 +118,30 @@ class MohaMindBot:
         await self.app.initialize()
         await self.app.start()
         await self.app.updater.start_polling(
+            timeout=30,
+            bootstrap_retries=5,
             drop_pending_updates=True,
             allowed_updates=["message", "callback_query"],
+            error_callback=self._polling_error,
         )
         log.info("MohaMind bot is running!")
 
     async def stop(self) -> None:
         """Stop the bot gracefully."""
         if self.app:
-            await self.app.updater.stop()
-            await self.app.stop()
+            if self.app.updater.running:
+                await self.app.updater.stop()
+            if self.app.running:
+                await self.app.stop()
             await self.app.shutdown()
             log.info("MohaMind bot stopped")
 
     async def send_message(self, text: str, chat_id: str | None = None) -> None:
         """Send a proactive message (used by scheduler)."""
         target_chat = chat_id or settings.telegram_chat_id
+        if not target_chat or not str(target_chat).isdigit() or int(target_chat) <= 0:
+            log.warning("Skipped proactive Telegram message: a private user chat is required")
+            return
         if not text or not text.strip():
             log.warning("Skipped empty Telegram message")
             return

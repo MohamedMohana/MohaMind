@@ -880,7 +880,7 @@ class MohaMindAgent:
                     except json.JSONDecodeError:
                         func_args = {}
 
-                    log.info(f"Tool call: {func_name}({func_args})")
+                    log.info("Tool call: %s", func_name)
                     tool_result = await self.handle_tool_call(func_name, func_args)
 
                     conversation.append(

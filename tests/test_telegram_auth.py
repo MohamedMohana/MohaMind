@@ -22,7 +22,7 @@ def _make_update(chat_id: int | None = 100, user_id: int | None = 100, with_call
 
     update = MagicMock()
     update.message = message
-    update.effective_chat = SimpleNamespace(id=chat_id) if chat_id is not None else None
+    update.effective_chat = SimpleNamespace(id=chat_id, type="private" if chat_id > 0 else "group") if chat_id else None
     update.effective_user = SimpleNamespace(id=user_id) if user_id is not None else None
     if with_callback:
         update.callback_query = MagicMock()
@@ -56,14 +56,32 @@ class TestGuardAllows:
         update.message.reply_text.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_owner_user_id_passes_in_other_chat(self, handlers):
-        # Group chat has a different chat id, but the sender is the owner.
+    async def test_owner_user_id_is_blocked_in_group(self, handlers):
         update = _make_update(chat_id=-100999, user_id=100)
         with patch.object(settings, "telegram_chat_id", "100"):
-            await handlers.guard(update, _context())
+            with pytest.raises(ApplicationHandlerStop):
+                await handlers.guard(update, _context())
 
 
 class TestGuardBlocks:
+    @pytest.mark.parametrize("owner", ["100", ""])
+    async def test_refusal_network_failure_still_stops_dispatch(self, handlers, owner):
+        update = _make_update(chat_id=666, user_id=666)
+        update.message.reply_text.side_effect = RuntimeError("connection lost")
+        with (
+            patch.object(settings, "telegram_chat_id", owner),
+            patch.object(settings, "telegram_allowed_user_ids", ""),
+        ):
+            with pytest.raises(ApplicationHandlerStop):
+                await handlers.guard(update, _context())
+
+    @pytest.mark.parametrize("chat_id,user_id", [(100, 666), (-100999, 666), (100, None)])
+    async def test_chat_id_cannot_authorize_a_different_sender(self, handlers, chat_id, user_id):
+        update = _make_update(chat_id=chat_id, user_id=user_id)
+        with patch.object(settings, "telegram_chat_id", str(chat_id)):
+            with pytest.raises(ApplicationHandlerStop):
+                await handlers.guard(update, _context())
+
     @pytest.mark.asyncio
     async def test_stranger_is_blocked_and_told_once(self, handlers):
         with patch.object(settings, "telegram_chat_id", "100"):
@@ -141,6 +159,7 @@ class TestCallbackChatBinding:
         await handlers.on_callback(update, MagicMock())
 
         assert "secret task" in handlers.memory.read("tasks")  # nothing deleted
+        assert token in handlers._pending_actions
         body = query.edit_message_text.await_args.args[0]
         assert "لا يخص" in body
 

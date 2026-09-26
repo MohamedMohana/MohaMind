@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLM_PROVIDERS = {
@@ -61,6 +62,24 @@ class Settings(BaseSettings):
     # in addition to TELEGRAM_CHAT_ID. Everyone else is refused.
     telegram_allowed_user_ids: str = ""
     telegram_allow_destructive: bool = True
+
+    voice_enabled: bool = False
+    voice_model: str = "small"
+    voice_device: Literal["cpu", "cuda", "auto"] = "cpu"
+    voice_compute_type: Literal["int8", "float16", "float32", "int8_float16", "auto"] = "int8"
+    voice_language: Literal["auto", "ar", "en"] = "auto"
+    voice_cpu_threads: int = Field(default=4, ge=1, le=32)
+    voice_max_duration_seconds: int = Field(default=300, ge=1, le=1200)
+    voice_max_file_mb: int = Field(default=10, ge=1, le=20)
+    voice_local_files_only: bool = False
+
+    @field_validator("voice_model")
+    @classmethod
+    def validate_voice_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value or value.endswith(".en") or "distil" in value.lower():
+            raise ValueError("Use a multilingual Whisper model such as small, medium, or large-v3")
+        return value
 
     google_credentials_path: str = "./credentials/google_credentials.json"
     google_token_path: str = "./credentials/google_token.json"
