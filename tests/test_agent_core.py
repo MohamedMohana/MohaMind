@@ -1,7 +1,7 @@
 """Comprehensive tests for agent core with mocked LLM."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -162,6 +162,27 @@ class TestAgentCoreTools:
 
 
 class TestAgentCoreConversation:
+    async def test_tool_arguments_are_not_written_to_logs(self, agent, caplog):
+        private_text = "fictional private medical appointment"
+        call = SimpleNamespace(
+            id="call-test", function=SimpleNamespace(
+                name="save_memory", arguments='{"category":"health","content":"' + private_text + '"}',
+            ),
+        )
+        tool_message = MagicMock(tool_calls=[call])
+        tool_message.model_dump.return_value = {"role": "assistant", "content": None}
+        final_message = SimpleNamespace(tool_calls=None, content="Saved")
+        agent._chat_completion_with_fallback = AsyncMock(side_effect=[
+            SimpleNamespace(choices=[SimpleNamespace(message=tool_message)]),
+            SimpleNamespace(choices=[SimpleNamespace(message=final_message)]),
+        ])
+        agent._route_memory_context = MagicMock(return_value=([], {}))
+        agent._build_recall_context = MagicMock(return_value="")
+        with caplog.at_level("INFO", logger="mohamind"):
+            await agent.chat("remember this", chat_id="test")
+        assert "Tool call: save_memory" in caplog.text
+        assert private_text not in caplog.text
+
     def test_get_conversation_new(self, agent):
         conv = agent._get_conversation("test_chat")
         assert conv == []

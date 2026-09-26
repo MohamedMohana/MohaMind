@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import time
 from typing import Any
 
@@ -63,7 +64,7 @@ class Handlers:
     def _remember_action(self, chat_id: str, action: dict[str, Any]) -> str:
         """Store a destructive action for later confirmation. Returns a token."""
         self._purge_expired_actions()
-        token = f"{chat_id}-{int(time.time() * 1000)}"
+        token = secrets.token_urlsafe(16)
         self._pending_actions[token] = {
             "chat_id": chat_id,
             "created_at": time.time(),
@@ -93,13 +94,10 @@ class Handlers:
         data, so an unknown Telegram user must never reach the agent.
         """
         allowed = settings.telegram_allowed_ids
-        candidates = {
-            str(update.effective_user.id) if update.effective_user else "",
-            str(update.effective_chat.id) if update.effective_chat else "",
-        }
-        candidates.discard("")
-
-        if allowed and candidates & allowed:
+        chat = update.effective_chat
+        user = update.effective_user
+        private = bool(chat and user and chat.type == "private" and chat.id == user.id)
+        if private and str(user.id) in allowed:
             return
 
         query = update.callback_query
@@ -110,26 +108,27 @@ class Handlers:
                 pass
 
         chat_id = str(update.effective_chat.id) if update.effective_chat else ""
-        user_id = str(update.effective_user.id) if update.effective_user else "?"
-        log.warning(f"Refused unauthorized Telegram update (user={user_id}, chat={chat_id or '?'})")
+        log.warning("Refused unauthorized Telegram update")
 
-        if update.message and chat_id:
-            if not allowed:
-                # Bot not configured yet — help the owner finish setup.
-                await update.message.reply_text(
-                    "🔒 MohaMind is locked until its owner finishes setup.\n"
-                    f"If this bot is yours, set TELEGRAM_CHAT_ID={chat_id} in .env and restart.\n\n"
-                    "🔒 هذا مساعد شخصي خاص ولم يكتمل إعداده بعد.\n"
-                    f"إذا كان هذا البوت لك، ضع TELEGRAM_CHAT_ID={chat_id} في ملف ‎.env‎ ثم أعد التشغيل."
-                )
-            elif chat_id not in self._denied_chats:
-                if len(self._denied_chats) > 500:
-                    self._denied_chats.clear()
-                self._denied_chats.add(chat_id)
-                await update.message.reply_text(
-                    "🔒 This is a private personal assistant. Access is restricted to its owner.\n"
-                    "🔒 هذا مساعد شخصي خاص، والوصول مقصور على صاحبه."
-                )
+        try:
+            if update.message and chat_id:
+                if not allowed and private:
+                    await update.message.reply_text(
+                        "🔒 MohaMind is locked until its owner finishes setup.\n"
+                        f"If this bot is yours, set TELEGRAM_CHAT_ID={chat_id} in .env and restart.\n\n"
+                        "🔒 هذا مساعد شخصي خاص ولم يكتمل إعداده بعد.\n"
+                        f"إذا كان هذا البوت لك، ضع TELEGRAM_CHAT_ID={chat_id} في ملف ‎.env‎ ثم أعد التشغيل."
+                    )
+                elif chat_id not in self._denied_chats:
+                    if len(self._denied_chats) > 500:
+                        self._denied_chats.clear()
+                    self._denied_chats.add(chat_id)
+                    await update.message.reply_text(
+                        "🔒 This is a private personal assistant. Access is restricted to its owner.\n"
+                        "🔒 هذا مساعد شخصي خاص، والوصول مقصور على صاحبه."
+                    )
+        except Exception:
+            pass
 
         raise ApplicationHandlerStop
 
@@ -635,7 +634,8 @@ class Handlers:
                 pass
             return
 
-        pending = self._pop_action(token)
+        self._purge_expired_actions()
+        pending = self._pending_actions.get(token)
         if not pending:
             try:
                 await query.edit_message_text("انتهت صلاحية هذا الطلب.")
@@ -652,6 +652,8 @@ class Handlers:
             except Exception:
                 pass
             return
+
+        self._pop_action(token)
 
         if action_type == "cancel":
             try:

@@ -257,7 +257,7 @@ class MemoryManager:
                 action="delete_matches",
                 details={"query": query, "removed_count": removed},
             )
-            log.info(f"Deleted {removed} line(s) from {category} matching '{query}'")
+            log.info("Deleted %s line(s) from %s", removed, category)
         return removed
 
     def delete_note(self, title: str) -> bool:

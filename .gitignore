@@ -15,9 +15,25 @@ venv/
 
 # Environment & Secrets
 .env
+.env.*
+!.env.example
 credentials/
 *.token
 *_token.json
+*.pem
+*.key
+*.sqlite*
+*.db
+*.db-*
+*.log
+*.ogg
+*.oga
+*.wav
+*.mp3
+*.m4a
+*.flac
+models/
+backups/
 # External MCP server config may embed API keys — keep it local.
 mcp_servers.json
 

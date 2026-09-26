@@ -35,6 +35,16 @@ empty scaffolds or fictional data. Review `git diff --cached` before committing.
 Use fictional examples in bug reports and remove tokens and personal details
 from logs or screenshots.
 
+Run `uv run python scripts/check_public_files.py --staged` after staging. It checks
+the exact Git index for private runtime paths and common credential patterns,
+printing only filenames and finding types. Omit `--staged` to check all tracked
+working files. This is a guardrail, not a complete personal-data detector: also review every staged diff,
+including templates, and never force-add private files.
+
+For speech-to-text development, use `uv sync --extra voice` and
+`uv run --extra voice pytest -q`. Decoder tests use synthetic silence; model and
+Telegram tests use mocks, without downloading model weights or contacting APIs.
+
 ## Reporting bugs
 
 Include the command you ran, expected and actual behavior, operating system,
