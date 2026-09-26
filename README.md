@@ -442,10 +442,15 @@ response. Long tool results are marked as truncated; stored source data is uncha
 Timeouts request cancellation of cooperative async handlers. They cannot interrupt
 blocking synchronous code or undo an action already accepted by an external service.
 A timeout reports an unknown outcome so the agent can check state before retrying.
-Built-in hybrid and semantic memory searches run in a worker thread, so embedding
+Built-in hybrid and semantic memory searches run in a dedicated daemon thread, so embedding
 requests and local inference do not block the event loop or its timeout. A search
 already running may finish after its caller times out; subsequent searches on the
 same agent wait for it, with that wait counting toward their own timeout.
+The worker is separate from asyncio's default executor, so a stuck embedding call
+does not hold up one-shot CLI shutdown or process exit. At most one search worker
+runs per agent; a permanently stuck worker requires restarting that agent to restore
+semantic search. Workers read source memory and update only the derived SQLite index;
+SQLite rolls back an unfinished index transaction if the process exits.
 These limits do not cap total tokens, API spending, or whole-turn duration.
 
 ## Core CLI Commands

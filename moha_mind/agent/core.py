@@ -30,6 +30,7 @@ from moha_mind.utils.arabic_support import (
     detect_language,
     normalize_colloquial_arabic,
 )
+from moha_mind.utils.async_work import start_daemon_worker
 from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
 
@@ -64,7 +65,7 @@ class MohaMindAgent:
         self.embedder = build_embedder()
         self.semantic_index = SemanticIndex(self.memory, self.embedder)
         self._memory_search_lock = asyncio.Lock()
-        self._memory_search_task: asyncio.Task[str] | None = None
+        self._memory_search_future: asyncio.Future[str] | None = None
         if self.embedder:
             log.info(f"Semantic memory enabled: {self.embedder.provider} ({self.embedder.model})")
 
@@ -572,13 +573,17 @@ class MohaMindAgent:
 
     async def _run_memory_search(self, handler: Callable[..., str], *args: Any) -> str:
         await self._memory_search_lock.acquire()
-        worker = asyncio.create_task(asyncio.to_thread(handler, *args))
-        self._memory_search_task = worker
+        try:
+            worker = start_daemon_worker(handler, *args)
+        except BaseException:
+            self._memory_search_lock.release()
+            raise
+        self._memory_search_future = worker
         worker.add_done_callback(self._finish_memory_search)
         return await asyncio.shield(worker)
 
-    def _finish_memory_search(self, worker: asyncio.Task[str]) -> None:
-        self._memory_search_task = None
+    def _finish_memory_search(self, worker: asyncio.Future[str]) -> None:
+        self._memory_search_future = None
         self._memory_search_lock.release()
         if not worker.cancelled():
             worker.exception()
