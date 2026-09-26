@@ -1,6 +1,6 @@
 # MohaMind - Development Plan
 
-## Project Status: v0.1.0 - Foundation Complete
+## Project Status: v0.2.0 - Local Speech-to-Text and Telegram Privacy Improvements
 
 ### Architecture Overview
 
