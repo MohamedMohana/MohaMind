@@ -144,7 +144,7 @@ async def test_blocking_embeddings_allow_timeout_and_other_tasks(execution_agent
     worker = None
     try:
         await asyncio.wait_for(embedder.started.wait(), timeout=1)
-        worker = agent._memory_search_task
+        worker = agent._memory_search_future
         assert not embedder.finished.is_set()
         result = await asyncio.wait_for(task, timeout=1)
         assert "timed out" in result
@@ -195,7 +195,7 @@ async def test_searches_wait_for_abandoned_worker_without_starting_more_work(exe
     worker = None
     try:
         await asyncio.wait_for(started.wait(), timeout=1)
-        worker = agent._memory_search_task
+        worker = agent._memory_search_future
         if cancel:
             first.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -224,6 +224,17 @@ async def test_search_worker_error_does_not_block_next_search(execution_agent):
     call = tool_call('{"query":"dentist"}', name="semantic_search_memory")
 
     assert await agent._execute_model_tool_call(call) == "Error: embedding failed"
+    assert await agent._execute_model_tool_call(call) == "No semantic matches."
+
+
+async def test_worker_start_failure_does_not_block_next_search(execution_agent):
+    agent, _ = execution_agent
+    agent.semantic_index = MagicMock()
+    agent.semantic_index.search.return_value = []
+    call = tool_call('{"query":"dentist"}', name="semantic_search_memory")
+
+    with patch("moha_mind.utils.async_work.threading.Thread.start", side_effect=RuntimeError("cannot start worker")):
+        assert await agent._execute_model_tool_call(call) == "Error: cannot start worker"
     assert await agent._execute_model_tool_call(call) == "No semantic matches."
 
 
