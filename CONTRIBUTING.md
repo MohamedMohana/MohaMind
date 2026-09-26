@@ -47,6 +47,12 @@ Telegram tests use mocks, without downloading model weights or contacting APIs.
 
 ## Reporting bugs
 
+For WhatsApp bridge changes, run `node --test moha_mind/whatsapp_bot/bridge/policy.test.mjs`
+and `uv run pytest -q tests/test_whatsapp.py`. These use fictional messages without
+linking a real account. Keep `credentials/`, QR codes, session files, and `node_modules/`
+out of contributions. See [docs/onboarding-study.md](docs/onboarding-study.md) to help
+test the first-run experience with new users.
+
 Include the command you ran, expected and actual behavior, operating system,
 Python version, and a small reproduction. State whether the problem occurs in
 CLI, Telegram, or both. Never include API keys or Telegram bot tokens.

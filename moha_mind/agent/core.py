@@ -5,6 +5,7 @@ Supports z.ai (Zhipu GLM), OpenAI, and automatic fallback.
 All providers use the OpenAI-compatible API format.
 """
 
+import asyncio
 import inspect
 import json
 import re
@@ -432,6 +433,45 @@ class MohaMindAgent:
 
         return schemas
 
+    async def _execute_model_tool_call(self, tool_call: Any) -> str:
+        tool_name = tool_call.function.name
+        log.info("Tool call: %s", tool_name)
+        try:
+            arguments = json.loads(tool_call.function.arguments)
+        except (json.JSONDecodeError, TypeError):
+            return "Error: tool arguments must be valid JSON. The tool was not executed."
+        if not isinstance(arguments, dict):
+            return "Error: tool arguments must be a JSON object. The tool was not executed."
+
+        try:
+            result = await asyncio.wait_for(
+                self.handle_tool_call(tool_name, arguments),
+                timeout=settings.agent_tool_timeout_seconds,
+            )
+        except TimeoutError:
+            log.warning("Tool timed out: %s", tool_name)
+            result = (
+                "Error: tool timed out; outcome is unknown. It may have completed externally. "
+                "Check state before retrying a change."
+            )
+
+        result = str(result)
+        limit = settings.agent_max_tool_result_chars
+        if len(result) > limit:
+            suffix = "\n[Tool result truncated; request a narrower query for more detail.]"
+            result = result[: limit - len(suffix)] + suffix
+        return result
+
+    async def _execute_tool_batch(self, tool_calls: list[Any], remaining_calls: int) -> list[dict]:
+        messages = []
+        for index, tool_call in enumerate(tool_calls):
+            if index >= remaining_calls:
+                result = "Error: tool-call limit reached. This tool was not executed."
+            else:
+                result = await self._execute_model_tool_call(tool_call)
+            messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
+        return messages
+
     async def handle_tool_call(self, tool_name: str, arguments: dict) -> str:
         """Handle a tool call from the LLM."""
         if tool_name in self._tool_handlers:
@@ -851,7 +891,8 @@ class MohaMindAgent:
         conversation.append({"role": "user", "content": message})
         self.session_store.append_message(chat_id, "user", message)
 
-        max_tool_rounds = 10
+        max_tool_rounds = settings.agent_max_tool_rounds
+        remaining_calls = settings.agent_max_tool_calls
         final_response = ""
 
         for round_num in range(max_tool_rounds):
@@ -873,23 +914,10 @@ class MohaMindAgent:
             if assistant_message.tool_calls:
                 conversation.append(assistant_message.model_dump())
 
-                for tool_call in assistant_message.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        func_args = {}
-
-                    log.info("Tool call: %s", func_name)
-                    tool_result = await self.handle_tool_call(func_name, func_args)
-
-                    conversation.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": tool_result,
-                        }
-                    )
+                conversation.extend(await self._execute_tool_batch(assistant_message.tool_calls, remaining_calls))
+                remaining_calls -= len(assistant_message.tool_calls)
+                if remaining_calls <= 0:
+                    break
             else:
                 final_response = assistant_message.content or ""
                 conversation.append({"role": "assistant", "content": final_response})
@@ -898,7 +926,7 @@ class MohaMindAgent:
         if not final_response:
             # Tool budget exhausted without a user-facing reply. Force one by
             # disabling tools so the model must summarize what it already did.
-            log.warning(f"Tool-call budget exhausted after {max_tool_rounds} rounds; forcing final reply.")
+            log.warning("No final reply after %s rounds; forcing final reply without tools.", round_num + 1)
             try:
                 forced_messages = self._build_llm_messages(system_prompt, conversation)
                 forced_messages.append(
@@ -1008,7 +1036,7 @@ class MohaMindAgent:
         return reply
 
     async def generate_briefing(self) -> str:
-        """Generate the morning briefing without tool calls - just a direct LLM response."""
+        """Generate the morning briefing with one bounded batch of tool calls."""
         system_prompt = build_system_prompt(self.memory, extra_context=t("briefing.mode"))
         briefing_request = t("briefing.prompt")
 
@@ -1031,25 +1059,12 @@ class MohaMindAgent:
                     {"role": "user", "content": briefing_request},
                     choice.message.model_dump(),
                 ]
-                for tool_call in choice.message.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        func_args = {}
-                    tool_result = await self.handle_tool_call(func_name, func_args)
-                    conversation.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": tool_result,
-                        }
-                    )
+                conversation.extend(
+                    await self._execute_tool_batch(choice.message.tool_calls, settings.agent_max_tool_calls)
+                )
 
                 response = await self._chat_completion_with_fallback(
                     messages=conversation,
-                    tools=self.get_tools_schema(),
-                    tool_choice="auto",
                     max_tokens=2000,
                     temperature=0.7,
                 )
@@ -1085,25 +1100,12 @@ class MohaMindAgent:
                     {"role": "user", "content": review_request},
                     choice.message.model_dump(),
                 ]
-                for tool_call in choice.message.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        func_args = {}
-                    tool_result = await self.handle_tool_call(func_name, func_args)
-                    conversation.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": tool_result,
-                        }
-                    )
+                conversation.extend(
+                    await self._execute_tool_batch(choice.message.tool_calls, settings.agent_max_tool_calls)
+                )
 
                 response = await self._chat_completion_with_fallback(
                     messages=conversation,
-                    tools=self.get_tools_schema(),
-                    tool_choice="auto",
                     max_tokens=2500,
                     temperature=0.7,
                 )

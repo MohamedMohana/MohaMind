@@ -1,0 +1,13 @@
+{
+  "name": "mohamind-whatsapp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test policy.test.mjs" },
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "pino": "^9.6.0",
+    "qrcode-terminal": "0.12.0"
+  }
+}

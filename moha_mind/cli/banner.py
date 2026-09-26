@@ -12,6 +12,7 @@ import time
 from rich.console import Group
 from rich.text import Text
 
+from moha_mind import __version__
 from moha_mind.cli.themes import HERMES_ORNAMENT
 
 _FIELD = "#edff45"  # chartreuse field
@@ -150,7 +151,7 @@ def _ascii_title(mood: str = "neutral") -> Text:
 
 
 def build_banner(
-    version: str = "0.1.0",
+    version: str = __version__,
     model: str = "glm-5-turbo",
     provider: str = "zai",
     timezone: str = "Asia/Riyadh",

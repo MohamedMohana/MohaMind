@@ -15,6 +15,7 @@ MohaMind is a CLI-first personal AI agent built for real life operations — rem
 - Reliable reminders scheduled in KSA time (Asia/Riyadh)
 - Arabic and English conversation, including Gulf/Saudi dialect
 - Telegram access alongside the local CLI
+- WhatsApp Message Yourself access through optional QR linking
 - Optional local Arabic/English speech-to-text for Telegram voice notes and audio files
 - Proactive daily briefings, weekly reviews, and expiry alerts
 
@@ -44,6 +45,7 @@ tasks and reminders, entirely on your machine.
 - [Reliability Notes](#reliability-notes)
 - [Core CLI Commands](#core-cli-commands)
 - [Telegram Usage](#telegram-usage)
+- [WhatsApp](#whatsapp)
 - [Voice Input (STT Only)](#voice-input-stt-only)
 - [Scheduler And Proactive Behavior](#scheduler-and-proactive-behavior)
 - [Memory Model](#memory-model)
@@ -122,10 +124,22 @@ It does not read your personal memory, connect to integrations, or call an LLM.
 ### Configure
 
 ```bash
-uv run mohamind setup
+uv run mohamind setup --quick
 ```
 
-The setup wizard writes `.env` and asks for:
+Quick setup asks for one provider, its API key, your timezone, and your preferred
+language. It preserves existing configuration and uses one provider for a new
+installation. API key entry is hidden. Setup checks the timezone and rejects example
+keys, but does not contact your provider to verify credentials.
+
+Then check local configuration:
+
+```bash
+uv run mohamind doctor
+```
+
+For optional integrations and advanced settings, run `uv run mohamind setup`.
+The full wizard writes `.env` and asks for:
 
 - your LLM provider + API key
 - verifier / fallback / solo strategy
@@ -139,7 +153,9 @@ The setup wizard writes `.env` and asks for:
 There is no need to hand-edit `.env` or `echo ... >> .env` to turn these on —
 re-run `uv run mohamind setup` any time to change them.
 
-If you skip setup and run `uv run mohamind` without an API key, MohaMind starts a first-run onboarding flow and writes `.env` with sensible defaults (router + summaries on, semantic search and consolidator off until you opt in).
+If you skip setup and run `uv run mohamind` interactively without an API key,
+MohaMind runs quick setup and uses the saved settings immediately. Noninteractive
+runs report the setup command and exit instead of waiting for input.
 
 ### Run
 
@@ -181,6 +197,11 @@ Important:
 - scheduled reminders and proactive alerts are most useful when `--bot` or `--all` is running
 
 ## First 5 Minutes
+
+Follow [the first-run walkthrough](docs/getting-started.md) to create a task,
+save a reminder, and check that it survives a restart. Reminder dates currently use
+Asia/Riyadh; setting a different schedule timezone does not yet convert every
+reminder flow. Scheduled delivery requires a running messaging service.
 
 Start the CLI:
 
@@ -404,6 +425,25 @@ MohaMind is designed to behave predictably, but reliable automation still depend
 - If a time expression is ambiguous, the agent may ask for clarification or choose the safest interpretation.
 - Structured Markdown memory is the source of truth for durable facts; session recall helps with conversational context.
 
+Tool execution limits can be adjusted in `.env`:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `AGENT_MAX_TOOL_ROUNDS` | `10` | Maximum tool-request rounds in one chat turn |
+| `AGENT_MAX_TOOL_CALLS` | `40` | Maximum tool-call attempts per chat turn, briefing, or weekly review |
+| `AGENT_TOOL_TIMEOUT_SECONDS` | `60` | Timeout for each asynchronous tool execution |
+| `AGENT_MAX_TOOL_RESULT_CHARS` | `16000` | Maximum characters returned from each tool to the model |
+
+Invalid JSON and non-object arguments are rejected before execution. Calls above the
+budget receive an explicit skipped result, and chat requests a final summary without
+tools. Briefings and weekly reviews allow one bounded tool batch before their final
+response. Long tool results are marked as truncated; stored source data is unchanged.
+
+Timeouts request cancellation of cooperative async handlers. They cannot interrupt
+blocking synchronous code or undo an action already accepted by an external service.
+A timeout reports an unknown outcome so the agent can check state before retrying.
+These limits do not cap total tokens, API spending, or whole-turn duration.
+
 ## Core CLI Commands
 
 | Command | What it does |
@@ -506,6 +546,20 @@ run their own instance with their own bot, credentials, and memory directory.
 | `/health`, `/family`, `/social`, `/car`, `/pay`, `/expiry [days]`, `/shopping` | Domain summaries |
 
 Destructive commands (`/forget`, `/untask`, `/delete_note`) always ask for inline-keyboard confirmation before anything is removed from disk. Set `TELEGRAM_ALLOW_DESTRUCTIVE=false` in `.env` to disable them entirely.
+
+## WhatsApp
+
+Link your existing WhatsApp account with a QR code and talk to MohaMind through
+**Message Yourself**, using your current memory:
+
+```bash
+uv run mohamind whatsapp setup
+uv run mohamind whatsapp
+```
+
+Requires Node.js 20+ and npm. This is an optional, unofficial WhatsApp Web bridge;
+read [the WhatsApp guide](docs/whatsapp.md) for pairing, supported messages, and
+scheduled notifications. Linking does not replace or reset your memory.
 
 ## Voice Input (STT Only)
 
@@ -1105,6 +1159,7 @@ Verification commands:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, pull requests, and
 guidance on keeping personal data out of contributions.
+See [ROADMAP.md](ROADMAP.md) for prioritized improvements and release acceptance criteria.
 
 Install dependencies:
 

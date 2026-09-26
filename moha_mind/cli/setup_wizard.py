@@ -9,10 +9,14 @@ Inspired by Hermes agent's onboarding flow:
 
 import os
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from dotenv import dotenv_values, set_key
 from rich.console import Console
 from rich.markup import escape
 from rich.prompt import Confirm, Prompt
+
+from moha_mind.utils.configuration import is_configured_key
 
 ENV_PATH = Path(".env")
 
@@ -322,19 +326,13 @@ class SetupWizard:
         self.existing: dict[str, str] = {}
 
     def _load_existing(self) -> dict[str, str]:
-        env_vars: dict[str, str] = {}
-        if ENV_PATH.exists():
-            for line in ENV_PATH.read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, _, value = line.partition("=")
-                    env_vars[key.strip()] = value.strip()
-        for key in [s["key"] for s in SETUP_STEPS]:
-            env_val = os.environ.get(key, "")
-            if env_val:
-                env_vars[key] = env_val
+        from moha_mind.config import Settings
+
+        env_vars = {key.upper(): value for key, value in dotenv_values(ENV_PATH).items() if value is not None}
+        known_keys = {name.upper() for name in Settings.model_fields}
+        for key, value in os.environ.items():
+            if key.upper() in known_keys:
+                env_vars[key.upper()] = value
         return env_vars
 
     def _mask(self, value: str) -> str:
@@ -424,8 +422,24 @@ class SetupWizard:
         self.console.print()
 
     def configure_step(self, step: dict, config: dict[str, str]) -> str:
+        while True:
+            value = self._prompt_step(step, config)
+            if step["key"] in {"ZAI_API_KEY", "OPENAI_API_KEY"} and not is_configured_key(value):
+                self.console.print("  [red]Enter your API key; example values cannot connect to a provider.[/]")
+                continue
+            if step["key"] == "TIMEZONE":
+                try:
+                    ZoneInfo(value)
+                except (ZoneInfoNotFoundError, ValueError):
+                    self.console.print("  [red]Use an IANA timezone such as Asia/Riyadh or Europe/London.[/]")
+                    continue
+            return value
+
+    def _prompt_step(self, step: dict, config: dict[str, str]) -> str:
         key = step["key"]
         current = config.get(key, "")
+        if step.get("secret") and not is_configured_key(current):
+            current = ""
 
         if "choices" in step:
             default_val = current or step["default"]
@@ -477,60 +491,45 @@ class SetupWizard:
         return value.strip()
 
     def save_config(self, config: dict[str, str]) -> None:
-        all_keys = {s["key"] for s in SETUP_STEPS}
-        all_keys.update(
-            {
-                "FALLBACK_LLM",
-                "SECONDARY_LLM",
-                "LLM_STRATEGY",
-                "VERIFIER_STRICTNESS",
-                "VERIFIER_MAX_RETRIES",
-                "ZAI_MODEL",
-                "ZAI_BASE_URL",
-                "OPENAI_MODEL",
-                "OPENAI_BASE_URL",
-                "MEMORY_ROUTER_MAX_CATEGORIES",
-                "MEMORY_SUMMARY_MODEL",
-                "SEMANTIC_TOP_K",
-                "PRIVACY_REDACT_SESSIONS",
-                "PRIVACY_REDACT_VERIFIER",
-                "PRIVACY_REDACT_DAILY_LOG",
-            }
-        )
-
-        existing_lines: list[str] = []
-        written_keys: set[str] = set()
-
-        if ENV_PATH.exists():
-            for line in ENV_PATH.read_text().splitlines():
-                stripped = line.strip()
-                if not stripped or stripped.startswith("#"):
-                    existing_lines.append(line)
-                    continue
-                if "=" in stripped:
-                    key = stripped.split("=", 1)[0].strip()
-                    if key in config:
-                        existing_lines.append(f"{key}={config[key]}")
-                        written_keys.add(key)
-                    elif key in all_keys:
-                        existing_lines.append(line)
-                        written_keys.add(key)
-                    else:
-                        existing_lines.append(line)
-                else:
-                    existing_lines.append(line)
-
         for key, value in config.items():
-            if key not in written_keys and value:
-                existing_lines.append(f"{key}={value}")
-
-        ENV_PATH.write_text("\n".join(existing_lines) + "\n", encoding="utf-8")
+            quote_mode = "never" if value and all(c.isalnum() or c in "_./:@,-" for c in value) else "always"
+            set_key(ENV_PATH, key, value, quote_mode=quote_mode, encoding="utf-8")
         self.console.print(f"\n  [bold #00FF87]Saved[/] [dim]→ {ENV_PATH}[/]")
+
+    def _run_quick(self) -> dict[str, str]:
+        self.console.print("  Set up chat with one provider. Integrations and advanced memory can wait.\n")
+        self.config = {}
+        if not any(is_configured_key(self.existing.get(key, "")) for key in ("ZAI_API_KEY", "OPENAI_API_KEY")):
+            self.config.update(LLM_STRATEGY="solo", FALLBACK_LLM="none", SECONDARY_LLM="none")
+        keys = ["PRIMARY_LLM", "API_KEY", "TIMEZONE", "AGENT_LANGUAGE"]
+        for key in keys:
+            if key == "API_KEY":
+                key = "ZAI_API_KEY" if self.config["PRIMARY_LLM"] == "zai" else "OPENAI_API_KEY"
+            step = next(step for step in SETUP_STEPS if step["key"] == key)
+            self.config[key] = self.configure_step(step, {**self.existing, **self.config})
+        self.save_config(self.config)
+        self.config = {**self.existing, **self.config}
+        self.show_next_steps()
+        return self.config
+
+    def show_next_steps(self) -> None:
+        self.console.print("\n  [bold green]Configuration saved.[/] Provider connectivity has not been tested.")
+        self.console.print("  Run [bold]uv run mohamind doctor[/] to check local configuration.")
+        self.console.print("  Start [bold]uv run mohamind[/], then try:")
+        self.console.print("    /add task Try MohaMind\n    /tasks\n    /remind Tomorrow at 9 AM KSA, try MohaMind")
+        self.console.print("    /reminders\n    /quit")
+        self.console.print("  Reopen MohaMind and use /reminders to check that your reminder was saved.")
+        self.console.print("  Reminder delivery needs Telegram setup and a running --bot or --all process.")
+        self.console.print("  Reminder dates currently use Asia/Riyadh (KSA); check the displayed time.")
+        self.console.print("  Run [bold]uv run mohamind setup[/] later for Telegram and advanced settings.\n")
 
     def run(self, quick: bool = False) -> dict[str, str]:
         self.show_welcome()
 
         self.existing = self._load_existing()
+
+        if quick:
+            return self._run_quick()
 
         if self.existing:
             self.show_current_config(self.existing)
@@ -593,14 +592,7 @@ class SetupWizard:
 
         self.show_current_config(self.config)
 
-        g = "#00FF87"
-        d = "#555555"
-        self.console.print(f"  [bold {g}]Setup complete.[/]\n")
-        self.console.print(f"  [bold {g}]mohamind[/]          [{d}]interactive CLI[/{d}]")
-        self.console.print(f"  [bold {g}]mohamind --bot[/]    [{d}]telegram bot only[/{d}]")
-        self.console.print(f"  [bold {g}]mohamind --all[/]    [{d}]CLI + telegram together[/{d}]")
-        self.console.print(f"  [bold {g}]mohamind doctor[/]   [{d}]check config health[/{d}]")
-        self.console.print()
+        self.show_next_steps()
 
         return self.config
 
@@ -624,38 +616,42 @@ def run_doctor() -> bool:
 
     console.print(f"\n  [bold {g}]mohamind doctor[/]\n")
 
-    env_path = Path(".env")
+    env_path = ENV_PATH
     has_env = env_path.exists()
 
     def _row(label: str, ok: bool, detail: str, warn: bool = False) -> None:
         icon = "[green]✓[/]" if ok else ("[yellow]![/]" if warn else "[red]✗[/]")
         console.print(f"    {icon} [{d}]{label:<24}[/{d}] {detail}")
 
-    _row(".env", has_env, str(env_path.resolve()) if has_env else "run mohamind setup")
+    _row(".env", has_env, str(env_path.resolve()) if has_env else "optional when using shell variables", warn=True)
+    console.print("  Local checks only; API credentials and provider connectivity are not tested.")
 
-    env_vars: dict[str, str] = {}
-    if has_env:
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                env_vars[k.strip()] = v.strip()
+    env_vars = SetupWizard(console)._load_existing()
 
     primary = env_vars.get("PRIMARY_LLM", os.environ.get("PRIMARY_LLM", "zai"))
     zai_key = env_vars.get("ZAI_API_KEY", os.environ.get("ZAI_API_KEY", ""))
     openai_key = env_vars.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    zai_key = zai_key if is_configured_key(zai_key) else ""
+    openai_key = openai_key if is_configured_key(openai_key) else ""
+    requested_primary = primary
+    if primary == "zai" and not zai_key and openai_key:
+        primary = "openai"
+    elif primary == "openai" and not openai_key and zai_key:
+        primary = "zai"
     tg_token = env_vars.get("TELEGRAM_BOT_TOKEN", os.environ.get("TELEGRAM_BOT_TOKEN", ""))
     tg_chat = env_vars.get("TELEGRAM_CHAT_ID", os.environ.get("TELEGRAM_CHAT_ID", ""))
     fallback = env_vars.get("FALLBACK_LLM", os.environ.get("FALLBACK_LLM", ""))
     secondary = env_vars.get("SECONDARY_LLM", os.environ.get("SECONDARY_LLM", ""))
     strategy = env_vars.get("LLM_STRATEGY", os.environ.get("LLM_STRATEGY", "fallback"))
     strictness = env_vars.get("VERIFIER_STRICTNESS", os.environ.get("VERIFIER_STRICTNESS", "balanced"))
-    secondary_resolved = secondary or fallback or ("openai" if primary == "zai" else "zai")
+    secondary_resolved = fallback or secondary or ("openai" if requested_primary == "zai" else "zai")
     if fallback == "none" or secondary == "none":
         strategy = "solo"
 
     console.print(f"\n  [bold {d}]Brain[/]")
     _row("provider", True, f"[bold]{primary}[/]  strategy: {strategy}")
+    if primary != requested_primary:
+        _row("provider selection", True, f"using {primary}; {requested_primary} has no configured key")
     if strategy != "solo":
         role = "verifier" if strategy == "verify" else "fallback"
         _row("secondary", True, f"[bold]{secondary_resolved}[/]  role: {role}")
@@ -666,7 +662,8 @@ def run_doctor() -> bool:
         _row("z.ai API key", bool(zai_key), _mask_key(zai_key) if zai_key else "run mohamind setup")
         zai_model = env_vars.get("ZAI_MODEL", os.environ.get("ZAI_MODEL", "glm-5-turbo"))
         zai_base = env_vars.get(
-            "ZAI_BASE_URL", os.environ.get("ZAI_BASE_URL", "https://api.z.ai/api/paas/v4/"),
+            "ZAI_BASE_URL",
+            os.environ.get("ZAI_BASE_URL", "https://api.z.ai/api/paas/v4/"),
         )
         _row("model", True, zai_model)
         _row("base URL", True, zai_base)
@@ -685,9 +682,24 @@ def run_doctor() -> bool:
             warn=not fb_key,
         )
 
+    console.print(f"\n  [bold {d}]Schedule[/]")
+    timezone = env_vars.get("TIMEZONE", "Asia/Riyadh")
+    try:
+        ZoneInfo(timezone)
+        timezone_ok = True
+    except (ZoneInfoNotFoundError, ValueError):
+        timezone_ok = False
+    _row("timezone", timezone_ok, escape(timezone) if timezone_ok else "invalid; run mohamind setup --quick")
+    if timezone_ok and timezone != "Asia/Riyadh":
+        _row("reminder timezone", False, "reminder dates currently use Asia/Riyadh; check scheduled times", warn=True)
+
     console.print(f"\n  [bold {d}]Telegram[/]")
     _row("bot token", bool(tg_token), "configured" if tg_token else "optional", warn=not tg_token)
     _row("chat ID", bool(tg_chat), tg_chat if tg_chat else "optional", warn=not tg_chat)
+    if not is_configured_key(tg_token) or not tg_chat:
+        _row("reminder delivery", False, "set up Telegram and keep mohamind --bot or --all running", warn=True)
+    else:
+        _row("reminder delivery", True, "configuration present; delivery requires a running --bot or --all process")
 
     console.print(f"\n  [bold {d}]Calendar[/]")
     google_credentials = Path(
@@ -717,9 +729,7 @@ def run_doctor() -> bool:
         env_vars.get("MEMORY_SUMMARIES_ENABLED", os.environ.get("MEMORY_SUMMARIES_ENABLED", "true")).lower() == "true"
     )
     embed_backend = env_vars.get("EMBEDDING_BACKEND", os.environ.get("EMBEDDING_BACKEND", "none")).lower()
-    cons_on = (
-        env_vars.get("CONSOLIDATOR_ENABLED", os.environ.get("CONSOLIDATOR_ENABLED", "false")).lower() == "true"
-    )
+    cons_on = env_vars.get("CONSOLIDATOR_ENABLED", os.environ.get("CONSOLIDATOR_ENABLED", "false")).lower() == "true"
     cons_mode = env_vars.get("CONSOLIDATOR_MODE", os.environ.get("CONSOLIDATOR_MODE", "hybrid"))
     cons_time = env_vars.get("CONSOLIDATOR_TIME", os.environ.get("CONSOLIDATOR_TIME", "02:30"))
     sensitive = env_vars.get(
@@ -742,17 +752,23 @@ def run_doctor() -> bool:
 
     console.print(f"\n  [bold {d}]Storage[/]")
     memory_dir = Path(env_vars.get("MEMORY_DIR", os.environ.get("MEMORY_DIR", "./memory")))
-    _row("memory", memory_dir.exists(), str(memory_dir))
+    _row("memory", memory_dir.exists(), str(memory_dir) if memory_dir.exists() else "created on first start", warn=True)
     creds_dir = Path("credentials")
-    _row("credentials", creds_dir.exists(), str(creds_dir))
+    _row(
+        "credentials",
+        creds_dir.exists(),
+        str(creds_dir) if creds_dir.exists() else "optional until linking a calendar",
+        warn=True,
+    )
 
-    critical_ok = (primary == "zai" and bool(zai_key)) or (primary == "openai" and bool(openai_key))
+    key_ok = (primary == "zai" and bool(zai_key)) or (primary == "openai" and bool(openai_key))
+    critical_ok = key_ok and timezone_ok
 
     console.print()
     if critical_ok:
-        console.print(f"  [bold {g}]Ready.[/] [{d}]Type[/] [bold {g}]mohamind[/] [{d}]to start.[/]")
+        console.print(f"  [bold {g}]Local configuration ready.[/] Run [bold]uv run mohamind[/] to try chat.")
     else:
-        console.print(f"  [bold red]Missing API key.[/] [{d}]Run[/] [bold {g}]mohamind setup[/] [{d}]to configure.[/]")
+        console.print("  [bold red]Configuration needs attention.[/] Run [bold]uv run mohamind setup --quick[/].")
     console.print()
 
     return critical_ok
