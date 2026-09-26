@@ -25,6 +25,10 @@ MohaMind uses z.ai (GLM) by default and can use OpenAI as:
 
 You pick the mode during `mohamind setup` and can change it later.
 
+**Try it before adding an API key:** clone the repo, run `uv sync`, then
+`uv run mohamind demo`. You'll get a working focus plan built from fictional
+tasks and reminders, entirely on your machine.
+
 ## Contents
 
 - [What It Does](#what-it-does)
@@ -32,6 +36,7 @@ You pick the mode during `mohamind setup` and can change it later.
 - [Quick Start](#quick-start)
 - [Run Modes](#run-modes)
 - [First 5 Minutes](#first-5-minutes)
+- [Focus Sessions](#focus-sessions)
 - [Common Real-Life Flows](#common-real-life-flows)
 - [How The Agent Thinks About Your Data](#how-the-agent-thinks-about-your-data)
 - [Arabic And Dialect Support](#arabic-and-dialect-support)
@@ -64,6 +69,8 @@ In practice, that means you can talk to it normally, let it store what matters, 
 
 ## Core Capabilities
 
+- Energy-aware focus sessions with ranked tasks, suggested work blocks, breaks, and upcoming reminders
+- Offline demo and local focus planning with no API key or AI usage charges
 - Natural-language reminders with exact KSA scheduling
 - Task tracking with priority and due dates
 - Occasion tracking for birthdays, anniversaries, and recurring annual dates
@@ -99,6 +106,16 @@ git clone https://github.com/MohamedMohana/MohaMind.git
 cd MohaMind
 uv sync
 ```
+
+### Try the offline demo
+
+```bash
+uv run mohamind demo
+uv run mohamind demo --minutes 30 --energy low
+```
+
+The demo creates fictional data in a temporary directory and removes it on exit.
+It does not read your personal memory, connect to integrations, or call an LLM.
 
 ### Configure
 
@@ -199,6 +216,46 @@ And in Arabic:
 ```
 
 When you reopen the CLI, MohaMind reloads recent conversation history for that chat and shows a compact recap if past messages exist.
+
+## Focus Sessions
+
+Turn your saved tasks into a manageable next step:
+
+```text
+/focus
+/focus 30 low
+/focus 90 high
+```
+
+`/focus` uses your most recently recorded energy level unless you specify one.
+Overdue tasks come first, followed by tasks due today, tomorrow, high-priority
+work, other dated tasks, and the undated backlog. The plan explains why each task
+was selected and shows overdue reminders plus those in the next 24 hours.
+
+| Energy | Suggested work block | Maximum tasks per session |
+| --- | --- | --- |
+| Low | 15 minutes | 1 |
+| Neutral | 25 minutes | 3 |
+| High | 45 minutes | 5 |
+
+Five-minute breaks between tasks count toward your budget. Blocks shrink to fit
+the available time; these are work suggestions, not estimates of how long a task
+will take. The planner does not check calendar availability, book time, or mark
+tasks complete. Use `/done <task text>` when finished and generate a fresh plan.
+Dates and reminder times use Asia/Riyadh.
+
+You can also run the planner without an API key or an interactive session:
+
+```bash
+uv run mohamind focus --minutes 60 --energy neutral
+uv run mohamind focus --minutes 30 --energy low --json
+```
+
+The standalone command defaults to neutral energy and reads your configured
+`MEMORY_DIR`. Its JSON output includes work blocks, ranking reasons, reminder
+times, and counts for active, overdue, and remaining tasks. Budgets must be
+between 5 and 480 minutes. Local planning requires no LLM call; asking for a plan
+through ordinary CLI or Telegram chat uses the agent's normal AI provider.
 
 ## Common Real-Life Flows
 
@@ -352,6 +409,7 @@ MohaMind is designed to behave predictably, but reliable automation still depend
 | `/help` | Show available commands |
 | `/majlis` | Open the command center |
 | `/today` | Show today's overview |
+| `/focus [minutes] [low\|neutral\|high]` | Build an energy-aware focus session from saved tasks |
 | `/radar` | Show ranked attention items |
 | `/tasks` | List active tasks |
 | `/reminders` | Show scheduled reminders |
@@ -961,7 +1019,7 @@ MohaMind/
 │   └── utils/                timezone, Arabic normalization, schedules
 ├── memory/                   Markdown memory + sessions.db + audit log
 ├── credentials/              optional Google / Microsoft OAuth
-└── tests/                    567 tests covering agent, memory, scheduler
+└── tests/                    tests covering agent, memory, scheduler, CLI
 ```
 
 ## Troubleshooting
@@ -978,12 +1036,15 @@ MohaMind/
 
 ## Quality
 
-Current local verification:
+Verification commands:
 
-- `uv run pytest -q` -> `595 passed`
+- `uv run pytest -q`
 - `uv run ruff check .` -> clean
 
 ## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, pull requests, and
+guidance on keeping personal data out of contributions.
 
 Install dependencies:
 

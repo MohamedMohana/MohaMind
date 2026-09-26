@@ -32,7 +32,10 @@ def _parse_args():
     parser.add_argument("--bot", action="store_true", help="Start Telegram bot daemon (no CLI)")
     parser.add_argument("--all", dest="all_services", action="store_true", help="CLI + Telegram bot together")
     parser.add_argument("--quick", action="store_true", help="Quick setup (skip optional fields)")
-    parser.add_argument("command", nargs="?", default=None, help="Subcommand: setup, doctor")
+    parser.add_argument("--minutes", type=int, default=60, help="Focus/demo time budget, 5–480 minutes")
+    parser.add_argument("--energy", choices=["low", "neutral", "high"], default="neutral", help="Focus/demo energy")
+    parser.add_argument("--json", action="store_true", help="Print focus/demo as JSON")
+    parser.add_argument("command", nargs="?", default=None, help="Subcommand: setup, doctor, focus, demo")
 
     known, _ = parser.parse_known_args()
     return known
@@ -125,6 +128,7 @@ def _first_run_auth():
 
 async def bootstrap(require_telegram: bool = False):
     from moha_mind.agent.core import MohaMindAgent
+    from moha_mind.agent.focus import FocusPlanner
     from moha_mind.agent.memory import MemoryManager
     from moha_mind.config import settings
     from moha_mind.mcp_servers.attention.server import AttentionServer
@@ -181,6 +185,7 @@ async def bootstrap(require_telegram: bool = False):
     agent.register_tool("list_reminders", reminder_server._list_reminders)
     agent.register_tool("complete_reminder", reminder_server._complete_reminder)
     agent.register_tool("get_attention_radar", attention_server._get_attention_radar)
+    agent.register_tool("get_focus_plan", FocusPlanner(memory).get_focus_plan)
 
     try:
         from moha_mind.mcp_servers.google_calendar.server import GoogleCalendarServer
@@ -321,13 +326,29 @@ async def run_one_shot(prompt: str) -> None:
 def run() -> None:
     args = _parse_args()
 
-    if "setup" in sys.argv:
+    command = args.prompt if not (args.one_shot is not None or args.bot or args.all_services) else None
+
+    if command in {"focus", "demo"}:
+        from pydantic import ValidationError
+
+        from moha_mind.agent.focus import FocusRequest
+        from moha_mind.cli.focus import run_focus
+
+        try:
+            request = FocusRequest(minutes=args.minutes, energy=args.energy)
+        except ValidationError:
+            print("Focus budget must be between 5 and 480 minutes.", file=sys.stderr)
+            sys.exit(2)
+        asyncio.run(run_focus(request, demo=command == "demo", as_json=args.json))
+        return
+
+    if command == "setup":
         from moha_mind.cli.setup_wizard import run_setup
 
         run_setup(quick="--quick" in sys.argv)
         return
 
-    if "doctor" in sys.argv:
+    if command == "doctor":
         from moha_mind.cli.setup_wizard import run_doctor
 
         run_doctor()

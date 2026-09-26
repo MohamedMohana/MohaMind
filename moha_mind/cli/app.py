@@ -122,6 +122,13 @@ class MohaMindCLI:
         )
         self.registry.register(Command(name="today", description="Show today's overview", handler=self._cmd_today))
         self.registry.register(
+            Command(
+                name="focus",
+                description="Plan your next work session: /focus [minutes] [low|neutral|high]",
+                handler=self._cmd_focus,
+            )
+        )
+        self.registry.register(
             Command(name="radar", description="Show ranked attention radar", handler=self._cmd_radar)
         )
         self.registry.register(
@@ -506,6 +513,25 @@ class MohaMindCLI:
         parts.append(f"\n{ksa_date_display()} · {ksa_time_str()}")
 
         self.console.print(hermes_panel("\n".join(parts), "today", theme))
+        return None
+
+    async def _cmd_focus(self, args: str = "") -> str | None:
+        from moha_mind.agent.focus import FocusPlanner, FocusRequest
+        from moha_mind.cli.focus import display_focus_plan
+
+        tokens = args.split()
+        try:
+            if len(tokens) > 2:
+                raise ValueError
+            request = FocusRequest(
+                minutes=int(tokens[0]) if tokens else 60,
+                energy=tokens[1].lower() if len(tokens) > 1 else self._current_mood(),
+            )
+        except ValueError:
+            self.console.print(display_error("Usage: /focus [5–480 minutes] [low|neutral|high]"))
+            return None
+        plan = await FocusPlanner(self.memory).build(request)
+        self.console.print(display_focus_plan(plan))
         return None
 
     async def _cmd_radar(self, args: str = "") -> str | None:
