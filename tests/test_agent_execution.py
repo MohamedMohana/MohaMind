@@ -1,10 +1,12 @@
 import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from moha_mind.agent.core import MohaMindAgent
+from moha_mind.agent.semantic_index import SemanticIndex
 from moha_mind.config import Settings
 
 
@@ -105,6 +107,124 @@ async def test_cancellation_propagates(execution_agent):
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+class BlockingEmbedder:
+    provider = "test"
+    model = "test"
+    dim = 2
+
+    def __init__(self, phase=None):
+        self.phase = phase
+        self.loop = asyncio.get_running_loop()
+        self.started = asyncio.Event()
+        self.release = threading.Event()
+        self.finished = threading.Event()
+        self.thread_ids = set()
+
+    def encode(self, texts):
+        self.thread_ids.add(threading.get_ident())
+        phase = "query" if texts == ["dentist"] else "sync"
+        if self.phase == phase:
+            self.loop.call_soon_threadsafe(self.started.set)
+            self.release.wait(timeout=2)
+            self.finished.set()
+        return [[1.0, 0.0] for _ in texts]
+
+
+@pytest.mark.parametrize("name", ["search_memory", "semantic_search_memory"])
+@pytest.mark.parametrize("phase", ["sync", "query"])
+async def test_blocking_embeddings_allow_timeout_and_other_tasks(execution_agent, name, phase):
+    agent, config = execution_agent
+    config.agent_tool_timeout_seconds = 0.1
+    agent.memory.write("tasks", "# Tasks\n## Active\n- schedule dentist appointment\n")
+    embedder = BlockingEmbedder(phase)
+    agent.semantic_index = SemanticIndex(agent.memory, embedder)
+    task = asyncio.create_task(agent._execute_model_tool_call(tool_call('{"query":"dentist"}', name=name)))
+    worker = None
+    try:
+        await asyncio.wait_for(embedder.started.wait(), timeout=1)
+        worker = agent._memory_search_task
+        assert not embedder.finished.is_set()
+        result = await asyncio.wait_for(task, timeout=1)
+        assert "timed out" in result
+        assert not embedder.finished.is_set()
+        assert worker is not None and not worker.done()
+        assert threading.get_ident() not in embedder.thread_ids
+    finally:
+        embedder.release.set()
+        if worker is not None:
+            await asyncio.wait_for(asyncio.shield(worker), timeout=2)
+        await asyncio.wait_for(task, timeout=2)
+
+
+@pytest.mark.parametrize("name", ["search_memory", "semantic_search_memory"])
+async def test_threaded_search_preserves_results_and_memory(execution_agent, name):
+    agent, _ = execution_agent
+    content = "# Tasks\n## Active\n- schedule dentist appointment\n"
+    agent.memory.write("tasks", content)
+    embedder = BlockingEmbedder()
+    agent.semantic_index = SemanticIndex(agent.memory, embedder)
+
+    result = await agent._execute_model_tool_call(tool_call('{"query":"dentist","categories":["tasks"]}', name=name))
+
+    assert "schedule dentist appointment" in result
+    assert agent.memory.read("tasks") == content
+    assert embedder.thread_ids
+    assert threading.get_ident() not in embedder.thread_ids
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_searches_wait_for_abandoned_worker_without_starting_more_work(execution_agent, cancel):
+    agent, config = execution_agent
+    config.agent_tool_timeout_seconds = 0.1
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+
+    def slow_sync():
+        loop.call_soon_threadsafe(started.set)
+        release.wait(timeout=2)
+
+    agent.semantic_index = MagicMock()
+    agent.semantic_index.sync.side_effect = slow_sync
+    agent.semantic_index.search.return_value = []
+    first = asyncio.create_task(
+        agent._execute_model_tool_call(tool_call('{"query":"dentist"}', name="semantic_search_memory"))
+    )
+    worker = None
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        worker = agent._memory_search_task
+        if cancel:
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+        else:
+            assert "timed out" in await first
+        second = await agent._execute_model_tool_call(tool_call('{"query":"dentist"}', name="search_memory"))
+        assert "timed out" in second
+        agent.semantic_index.sync.assert_called_once()
+        agent.semantic_index.search.assert_not_called()
+    finally:
+        release.set()
+        if worker is not None:
+            await asyncio.wait_for(asyncio.shield(worker), timeout=2)
+        await asyncio.gather(first, return_exceptions=True)
+
+    result = await agent._execute_model_tool_call(tool_call('{"query":"dentist"}', name="semantic_search_memory"))
+    assert result == "No semantic matches."
+    assert agent.semantic_index.sync.call_count == 2
+
+
+async def test_search_worker_error_does_not_block_next_search(execution_agent):
+    agent, _ = execution_agent
+    agent.semantic_index = MagicMock()
+    agent.semantic_index.search.side_effect = [RuntimeError("embedding failed"), []]
+    call = tool_call('{"query":"dentist"}', name="semantic_search_memory")
+
+    assert await agent._execute_model_tool_call(call) == "Error: embedding failed"
+    assert await agent._execute_model_tool_call(call) == "No semantic matches."
 
 
 async def test_large_result_is_bounded_and_marked(execution_agent):

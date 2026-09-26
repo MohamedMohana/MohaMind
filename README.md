@@ -442,6 +442,10 @@ response. Long tool results are marked as truncated; stored source data is uncha
 Timeouts request cancellation of cooperative async handlers. They cannot interrupt
 blocking synchronous code or undo an action already accepted by an external service.
 A timeout reports an unknown outcome so the agent can check state before retrying.
+Built-in hybrid and semantic memory searches run in a worker thread, so embedding
+requests and local inference do not block the event loop or its timeout. A search
+already running may finish after its caller times out; subsequent searches on the
+same agent wait for it, with that wait counting toward their own timeout.
 These limits do not cap total tokens, API spending, or whole-turn duration.
 
 ## Core CLI Commands
