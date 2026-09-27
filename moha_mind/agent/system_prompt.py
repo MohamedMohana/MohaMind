@@ -10,6 +10,7 @@ Constructs the system prompt dynamically based on:
 - Connected memory insights
 """
 
+import re
 from typing import Optional
 
 from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
@@ -37,6 +38,31 @@ def _render_summaries(
         return ""
     header = "### MEMORY SUMMARIES (ask for full content when needed)"
     return header + "\n" + "\n".join(lines) + "\n"
+
+
+def _active_task_context(content: str) -> str:
+    lines = []
+    history_level = None
+    skip_details = False
+    for line in content.splitlines():
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            level = len(heading.group(1))
+            if history_level is not None and level <= history_level:
+                history_level = None
+            if heading.group(2).strip().casefold() in {"completed", "archived"}:
+                history_level = level
+            skip_details = False
+        if history_level is not None:
+            continue
+        if re.match(r"^\s*- (?:\[[xX]\]|Archived\s+\d{4}-\d{2}-\d{2}:)", line):
+            skip_details = True
+            continue
+        if skip_details and (not line.strip() or line.startswith((" ", "\t"))):
+            continue
+        skip_details = False
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def build_system_prompt(
@@ -71,15 +97,7 @@ def build_system_prompt(
 
     profile = memory.read("profile")  # always in full
     family = _read_if_focus("family")
-    tasks = (
-        "\n".join(
-            f"- {task['text'].strip()} [priority:{task['priority']}]" + (f" due:{task['due']}" if task["due"] else "")
-            for task in memory.get_task_section()
-            if not task["done"]
-        )
-        if not router_enabled or "tasks" in focus
-        else ""
-    )
+    tasks = _active_task_context(_read_if_focus("tasks"))
     reminders = _read_if_focus("reminders")
     occasions = _read_if_focus("occasions")
     vehicle = _read_if_focus("vehicle")

@@ -255,8 +255,9 @@ async def test_workflows_bound_batches_and_preserve_tool_responses(execution_age
     agent, config = execution_agent
     config.agent_max_tool_calls = 2
     handler = AsyncMock(return_value="ok")
-    agent.register_tool("test_tool", handler)
-    calls = [tool_call(call_id=f"call-{i}") for i in range(4)]
+    name = "list_tasks" if workflow == "generate_weekly_review" else "test_tool"
+    agent.register_tool(name, handler)
+    calls = [tool_call(call_id=f"call-{i}", name=name) for i in range(4)]
     agent._chat_completion_with_fallback = AsyncMock(
         side_effect=[response(calls=calls), response(content="Two tools completed; two skipped.")]
     )
@@ -310,9 +311,10 @@ async def test_chat_round_limit_forces_final_response(execution_agent):
 async def test_workflows_recover_from_invalid_arguments(execution_agent, workflow):
     agent, _ = execution_agent
     handler = AsyncMock(return_value="changed")
-    agent.register_tool("test_tool", handler)
+    name = "list_tasks" if workflow == "generate_weekly_review" else "test_tool"
+    agent.register_tool(name, handler)
     agent._chat_completion_with_fallback = AsyncMock(
-        side_effect=[response(calls=[tool_call("{")]), response(content="Could not execute")]
+        side_effect=[response(calls=[tool_call("{", name=name)]), response(content="Could not execute")]
     )
 
     result = await getattr(agent, workflow)(*(["Run tools"] if workflow == "chat" else []))
@@ -321,3 +323,27 @@ async def test_workflows_recover_from_invalid_arguments(execution_agent, workflo
     handler.assert_not_awaited()
     messages = agent._chat_completion_with_fallback.call_args.kwargs["messages"]
     assert any(message["role"] == "tool" and "not executed" in message["content"] for message in messages)
+
+
+async def test_weekly_review_blocks_writes_and_preserves_mixed_response_order(execution_agent):
+    agent, config = execution_agent
+    config.agent_max_tool_calls = 1
+    reader = AsyncMock(return_value="Active tasks")
+    writer = AsyncMock(return_value="Changed")
+    agent.register_tool("list_tasks", reader)
+    agent.register_tool("archive_task", writer)
+    calls = [
+        tool_call(call_id="write", name="archive_task"),
+        tool_call(call_id="read", name="list_tasks"),
+        tool_call(call_id="unknown", name="test_tool"),
+        tool_call(call_id="over-budget", name="list_tasks"),
+    ]
+    agent._chat_completion_with_fallback = AsyncMock(side_effect=[response(calls=calls), response(content="Review")])
+    assert await agent.generate_weekly_review() == "Review"
+    reader.assert_awaited_once()
+    writer.assert_not_awaited()
+    messages = agent._chat_completion_with_fallback.call_args.kwargs["messages"]
+    results = [message for message in messages if message["role"] == "tool"]
+    assert [result["tool_call_id"] for result in results] == [call.id for call in calls]
+    assert results[1]["content"] == "Active tasks"
+    assert all("not executed" in results[index]["content"] for index in (0, 2, 3))

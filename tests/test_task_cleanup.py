@@ -40,6 +40,37 @@ def test_completed_tasks_are_not_active_context(tmp_memory):
     assert "Finished appointment" not in build_system_prompt(tmp_memory)
 
 
+@pytest.mark.parametrize("focus", [None, ["tasks"], ["profile"]])
+def test_legacy_tasks_preserve_context_without_history(tmp_memory, focus):
+    tmp_memory.write(
+        "tasks",
+        "\n".join(
+            [
+                "# Tasks",
+                "## Active",
+                "- buy milk",
+                "- [ ] Open task",
+                "  Active details",
+                "- [x] Finished task",
+                "  Finished details",
+                "- Archived 2025-01-01: Old task",
+                "  Archived details",
+                "## Completed",
+                "- Past task",
+                "### Notes",
+                "Historical detail",
+                "## Recurring",
+                "- Repeat task",
+            ]
+        ),
+    )
+    prompt = build_system_prompt(tmp_memory, focus_categories=focus)
+    for text in ("buy milk", "Open task", "Active details", "Repeat task"):
+        assert (text in prompt) == (focus != ["profile"])
+    for text in ("Finished task", "Finished details", "Old task", "Archived details", "Past task", "Historical detail"):
+        assert text not in prompt
+
+
 @pytest.mark.asyncio
 async def test_weekly_review_asks_only_about_overdue_active_tasks(tmp_memory):
     tmp_memory.add_task("Expired appointment", due="2025-01-01")

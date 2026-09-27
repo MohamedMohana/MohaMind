@@ -1138,16 +1138,21 @@ class MohaMindAgent:
                     {"role": "user", "content": review_request},
                     choice.message.model_dump(),
                 ]
-                conversation.extend(
-                    await self._execute_tool_batch(
-                        [call for call in choice.message.tool_calls if call.function.name in read_tools],
-                        settings.agent_max_tool_calls,
-                    )
+                results = await self._execute_tool_batch(
+                    [call for call in choice.message.tool_calls if call.function.name in read_tools],
+                    settings.agent_max_tool_calls,
                 )
+                results_by_id = {result["tool_call_id"]: result for result in results}
                 conversation.extend(
-                    {"role": "tool", "tool_call_id": call.id, "content": "Weekly reviews cannot modify saved data."}
+                    results_by_id.get(
+                        call.id,
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": "Error: tool not executed. Weekly reviews cannot modify saved data.",
+                        },
+                    )
                     for call in choice.message.tool_calls
-                    if call.function.name not in read_tools
                 )
 
                 response = await self._chat_completion_with_fallback(
