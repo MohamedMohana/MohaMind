@@ -36,6 +36,31 @@ MEMORY_FILES = {
 MAX_MEMORY_VERSIONS_PER_CATEGORY = 200
 
 
+def active_task_context(content: str) -> str:
+    lines = []
+    history_level = None
+    skip_details = False
+    for line in content.splitlines():
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            level = len(heading.group(1))
+            if history_level is not None and level <= history_level:
+                history_level = None
+            if heading.group(2).strip().casefold() in {"completed", "archived"}:
+                history_level = level
+            skip_details = False
+        if history_level is not None:
+            continue
+        if re.match(r"^\s*- (?:\[[xX]\]|Archived\s+\d{4}-\d{2}-\d{2}:)", line):
+            skip_details = True
+            continue
+        if skip_details and (not line.strip() or line.startswith((" ", "\t"))):
+            continue
+        skip_details = False
+        lines.append(line)
+    return "\n".join(lines)
+
+
 class MemoryManager:
     def __init__(self, memory_dir: Optional[str] = None):
         self.memory_path = Path(memory_dir or settings.memory_dir)
@@ -430,7 +455,16 @@ class MemoryManager:
         if len(matches) != 1:
             return False
         index = matches[0]
-        lines[index] = f"- Archived {ksa_today_str()}: {lines[index][6:]}"
+        end = index + 1
+        while end < len(lines) and lines[end].startswith((" ", "\t")):
+            end += 1
+        archived = [f"- Archived {ksa_today_str()}: {lines[index][6:]}", *lines[index + 1 : end]]
+        del lines[index:end]
+        section = next((i for i, line in enumerate(lines) if line.strip().casefold() == "## archived"), None)
+        if section is None:
+            lines.extend(["", "## Archived", *archived])
+        else:
+            lines[section + 1 : section + 1] = archived
         self.write("tasks", "\n".join(lines) + "\n")
         return True
 
