@@ -16,6 +16,7 @@ class TaskServer:
         handlers = {
             "add_task": self._add_task,
             "complete_task": self._complete_task,
+            "archive_task": self._archive_task,
             "list_tasks": self._list_tasks,
             "update_task": self._update_task,
             "set_reminder": self._set_reminder,
@@ -34,6 +35,14 @@ class TaskServer:
         if success:
             return f"Task completed: {task_text}"
         return f"Task not found: {task_text}"
+
+    async def _archive_task(self, task_text: str, confirmed: bool = False) -> str:
+        """Archive one exact task only after the user explicitly agrees to remove it from active tasks."""
+        if confirmed is not True:
+            return "Ask the user to confirm archiving this specific task first. No changes made."
+        if self.memory.archive_task(task_text):
+            return f"Task archived and removed from active summaries: {task_text}"
+        return "No unique exact task found. Ask the user to identify the task. No changes made."
 
     async def _list_tasks(self, include_completed: bool = False) -> str:
         tasks = self.memory.get_task_section()

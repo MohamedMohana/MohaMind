@@ -125,16 +125,26 @@ CATALOG: dict[str, dict[str, str]] = {
     "review.prompt": {
         "ar": (
             "اكتب المراجعة الأسبوعية باللغة العربية الواضحة والمهنية. "
-            "ضمّن المهام المكتملة والمتأخرة، الأنماط التي لاحظتها، ملخصًا ماليًا، "
+            "ضمّن المهام النشطة، الأنماط التي لاحظتها، ملخصًا ماليًا، "
             "العادات الصحية، العلاقات الاجتماعية، واقتراحات عملية للأسبوع القادم. "
+            "لا تعرض المهام المكتملة أو المؤرشفة كعمل مطلوب، ولا تعتبر تجاوز الموعد دليلًا على الإنجاز. "
+            "سيضاف سؤال متابعة للمهام المتأخرة تلقائيًا؛ لا تكرره ولا تغيّر أي بيانات. "
             "كن بنّاءً ومباشرًا دون إطالة."
         ),
         "en": (
             "Write the weekly review in clear, professional English. "
-            "Include completed and overdue tasks, patterns you noticed, a financial summary, "
+            "Include active tasks, patterns you noticed, a financial summary, "
             "health habits, social relationships, and practical suggestions for the coming week. "
+            "Never present completed or archived tasks as pending, or assume a past due date means completion. "
+            "An overdue-task follow-up will be appended automatically; do not repeat it or modify any data. "
             "Be constructive and direct without padding."
         ),
+    },
+    "review.cleanup": {
+        "ar": "هذه المهام تجاوزت موعدها. هل أنجزتها، أم تريد أرشفتها وإزالتها من الملخص، أم إبقاءها؟ "
+        "اذكر اسم المهمة والخيار المطلوب؛ لن أؤرشفها دون موافقتك:",
+        "en": "These tasks are past due. Are they done, should I archive them and remove them from summaries, "
+        "or should they stay active? Reply with the task name and action; I won't archive without your approval:",
     },
     "review.error": {
         "ar": "تعذر إعداد المراجعة الأسبوعية الآن. سأحاول مرة أخرى في الموعد القادم.",

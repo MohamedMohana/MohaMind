@@ -414,6 +414,26 @@ class MemoryManager:
                 return True
         return False
 
+    def archive_task(self, task_text: str) -> bool:
+        target = task_text.strip().casefold()
+        if not target:
+            return False
+        lines = self.read("tasks").splitlines()
+        matches = []
+        for index, line in enumerate(lines):
+            match = re.match(r"^- \[([ x])\] (.+)$", line)
+            if not match:
+                continue
+            text = re.sub(r"\[(HIGH|MED|MEDIUM|LOW)\]|due:\d{4}-\d{2}-\d{2}", "", match.group(2)).strip()
+            if text.casefold() == target:
+                matches.append(index)
+        if len(matches) != 1:
+            return False
+        index = matches[0]
+        lines[index] = f"- Archived {ksa_today_str()}: {lines[index][6:]}"
+        self.write("tasks", "\n".join(lines) + "\n")
+        return True
+
     def _parse_reminder_line(self, line: str) -> Optional[dict]:
         reminder_match = re.match(r"^- \[([ x])\] (.+)$", line.strip())
         if not reminder_match:
