@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
+from moha_mind.agent.memory import MEMORY_FILES, MemoryManager, active_task_context
 from moha_mind.config import settings
 from moha_mind.utils.logging_config import log
 
@@ -45,6 +45,8 @@ def _heuristic_summary(category: str, content: str, max_chars: int = MAX_SUMMARY
 
     The result is not brilliant, but it's always available and is small.
     """
+    if category == "tasks":
+        content = active_task_context(content)
     if not content or not content.strip():
         return f"(empty) {category} has no entries yet."
 
@@ -118,6 +120,8 @@ class MemorySummarizer:
             return ""
         cache = self.summary_path(category)
         source_text = source.read_text(encoding="utf-8")
+        if category == "tasks":
+            source_text = active_task_context(source_text)
         if cache.exists() and self._cache_matches_source(category, source_text):
             return cache.read_text(encoding="utf-8").strip()
         text = _heuristic_summary(category, source_text)
@@ -141,6 +145,8 @@ class MemorySummarizer:
         if not source.exists():
             return ""
         content = source.read_text(encoding="utf-8")
+        if category == "tasks":
+            content = active_task_context(content)
         text = await self._llm_summary(category, content) if self.llm_client else ""
         if not text:
             text = _heuristic_summary(category, content)

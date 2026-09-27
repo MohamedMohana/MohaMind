@@ -33,6 +33,7 @@ from moha_mind.utils.arabic_support import (
 from moha_mind.utils.async_work import start_daemon_worker
 from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
+from moha_mind.utils.timezone import ksa_today_str
 
 
 class MohaMindAgent:
@@ -1102,6 +1103,21 @@ class MohaMindAgent:
         """Generate the weekly life review."""
         system_prompt = build_system_prompt(self.memory, extra_context=t("review.mode"))
         review_request = t("review.prompt")
+        overdue = [
+            task
+            for task in self.memory.get_task_section()
+            if not task["done"] and task["due"] and task["due"] < ksa_today_str()
+        ]
+        cleanup = ""
+        if overdue:
+            cleanup = (
+                "\n\n"
+                + t("review.cleanup")
+                + "\n"
+                + "\n".join(f"- {task['text'].strip()} ({task['due']})" for task in overdue)
+            )
+        read_tools = {"search_memory", "list_tasks", "get_expiring", "get_calendar_events", "get_ms_calendar_events"}
+        review_tools = [tool for tool in self.get_tools_schema() if tool["function"]["name"] in read_tools]
 
         try:
             response = await self._chat_completion_with_fallback(
@@ -1109,7 +1125,7 @@ class MohaMindAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": review_request},
                 ],
-                tools=self.get_tools_schema(),
+                tools=review_tools,
                 tool_choice="auto",
                 max_tokens=2500,
                 temperature=0.7,
@@ -1122,8 +1138,21 @@ class MohaMindAgent:
                     {"role": "user", "content": review_request},
                     choice.message.model_dump(),
                 ]
+                results = await self._execute_tool_batch(
+                    [call for call in choice.message.tool_calls if call.function.name in read_tools],
+                    settings.agent_max_tool_calls,
+                )
+                results_by_id = {result["tool_call_id"]: result for result in results}
                 conversation.extend(
-                    await self._execute_tool_batch(choice.message.tool_calls, settings.agent_max_tool_calls)
+                    results_by_id.get(
+                        call.id,
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": "Error: tool not executed. Weekly reviews cannot modify saved data.",
+                        },
+                    )
+                    for call in choice.message.tool_calls
                 )
 
                 response = await self._chat_completion_with_fallback(
@@ -1131,9 +1160,9 @@ class MohaMindAgent:
                     max_tokens=2500,
                     temperature=0.7,
                 )
-                return response.choices[0].message.content or ""
+                return (response.choices[0].message.content or "") + cleanup
 
-            return choice.message.content or ""
+            return (choice.message.content or "") + cleanup
         except Exception as e:
             log.error(f"Weekly review generation failed: {e}")
             return t("review.error")

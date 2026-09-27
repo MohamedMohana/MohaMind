@@ -100,6 +100,7 @@ async def bootstrap(require_telegram: bool = False):
     agent.register_tool("search_memory", memory_server._search)
     agent.register_tool("add_task", task_server._add_task)
     agent.register_tool("complete_task", task_server._complete_task)
+    agent.register_tool("archive_task", task_server._archive_task)
     agent.register_tool("list_tasks", task_server._list_tasks)
     agent.register_tool("get_expiring", life_server._get_expiring_items)
     agent.register_tool("append_to_section", memory_server._append_to_section)
