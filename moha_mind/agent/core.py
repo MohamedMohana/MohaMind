@@ -881,6 +881,36 @@ class MohaMindAgent:
         return True
 
     async def _chat_completion_with_fallback(self, **kwargs):
+        request = dict(kwargs)
+        request["messages"] = list(kwargs["messages"])
+        tools_enabled = bool(request.get("tools")) and request.get("tool_choice") != "none"
+        for attempt in range(2):
+            response = await self._request_completion_with_fallback(**request)
+            message = response.choices[0].message
+            markup = re.search(r"<\s*/?\s*(?:tool_call|arg_key|arg_value)\b", message.content or "", re.IGNORECASE)
+            if not markup and (tools_enabled or not message.tool_calls):
+                return response
+            if attempt:
+                raise ValueError("Model returned tool markup instead of a valid response")
+            log.warning("Model returned invalid tool output; requesting a corrected response")
+            request["messages"].append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Your response used an invalid tool-call format. Never output tool_call, arg_key, "
+                        "or arg_value XML tags. "
+                        + (
+                            "Use only the provided structured function tools if you need more information; "
+                            "otherwise provide the finished answer in the requested language."
+                            if tools_enabled
+                            else "No more tools are available. Write the finished answer in the requested language "
+                            "using only the information already available. Clearly state any missing information."
+                        )
+                    ),
+                }
+            )
+
+    async def _request_completion_with_fallback(self, **kwargs):
         try:
             return await self.client.chat.completions.create(model=self.model, **kwargs)
         except Exception as e:
@@ -1116,7 +1146,16 @@ class MohaMindAgent:
                 + "\n"
                 + "\n".join(f"- {task['text'].strip()} ({task['due']})" for task in overdue)
             )
-        read_tools = {"search_memory", "list_tasks", "get_expiring", "get_calendar_events", "get_ms_calendar_events"}
+        read_tools = {
+            "search_memory",
+            "list_tasks",
+            "get_expiring",
+            "get_calendar_events",
+            "get_ms_calendar_events",
+            "social_get_neglected",
+            "social_get_upcoming_birthdays",
+            "family_get_upcoming",
+        }
         review_tools = [tool for tool in self.get_tools_schema() if tool["function"]["name"] in read_tools]
 
         try:

@@ -28,3 +28,13 @@ jobs:
 
       - name: Tests
         run: uv run pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: WhatsApp message filtering
+        run: node --test moha_mind/whatsapp_bot/bridge/policy.test.mjs
+
+      - name: WhatsApp bridge syntax
+        run: node --check moha_mind/whatsapp_bot/bridge/bridge.mjs

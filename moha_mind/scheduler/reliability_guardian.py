@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
+from moha_mind.agent.memory import MEMORY_FILES, MemoryManager, active_task_context
 from moha_mind.agent.memory_summarizer import MemorySummarizer
 from moha_mind.config import settings
 from moha_mind.telegram_bot.formatters import truncate_message
@@ -184,9 +184,15 @@ class ReliabilityGuardian:
             except (OSError, json.JSONDecodeError):
                 stale.append(category)
                 continue
-            if data.get("source_hash") != hashlib.sha1(source.read_bytes()).hexdigest():
+            if data.get("source_hash") != self._summary_source_hash(category, source):
                 stale.append(category)
         return stale
+
+    def _summary_source_hash(self, category: str, source: Path) -> str:
+        content = source.read_text(encoding="utf-8")
+        if category == "tasks":
+            content = active_task_context(content)
+        return hashlib.sha1(content.encode("utf-8")).hexdigest()
 
     def latest_manifest(self) -> dict | None:
         manifests = sorted(self.backup_dir.glob("*.manifest.json"), key=lambda path: path.stat().st_mtime)
@@ -329,7 +335,7 @@ class ReliabilityGuardian:
             except (OSError, json.JSONDecodeError):
                 report.warnings.append(f"Summary metadata is unreadable: {category}")
                 continue
-            source_hash = hashlib.sha1(source.read_bytes()).hexdigest()
+            source_hash = self._summary_source_hash(category, source)
             if data.get("source_hash") != source_hash:
                 report.warnings.append(f"Summary cache is stale: {category}")
 

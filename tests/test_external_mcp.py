@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 from types import SimpleNamespace
 
@@ -73,6 +74,34 @@ class TestLoadConfig:
         path = _write_config(tmp_path, {"mcpServers": {"bad": "nope", "ok": {"command": "x"}}})
         configs = load_mcp_config(path)
         assert [c.name for c in configs] == ["ok"]
+
+    def test_dotenv_expands_env_and_headers_without_exporting_secrets(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("MCP_TEST_KEY", raising=False)
+        (tmp_path / ".env").write_text("MCP_TEST_KEY=dotenv-secret\n")
+        path = _write_config(
+            tmp_path,
+            {
+                "mcpServers": {
+                    "vision": {"command": "npx", "env": {"Z_AI_API_KEY": "${MCP_TEST_KEY}"}},
+                    "search": {"url": "https://example.com/mcp", "headers": {"Authorization": "Bearer $MCP_TEST_KEY"}},
+                }
+            },
+        )
+        configs = load_mcp_config(path)
+        assert configs[0].env["Z_AI_API_KEY"] == "dotenv-secret"
+        assert configs[1].headers["Authorization"] == "Bearer dotenv-secret"
+        assert "MCP_TEST_KEY" not in os.environ
+
+    def test_shell_environment_overrides_dotenv(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MCP_TEST_KEY", "shell-secret")
+        (tmp_path / ".env").write_text("MCP_TEST_KEY=dotenv-secret\n")
+        path = _write_config(
+            tmp_path,
+            {"mcpServers": {"vision": {"command": "npx", "env": {"TOKEN": "${MCP_TEST_KEY}"}}}},
+        )
+        assert load_mcp_config(path)[0].env["TOKEN"] == "shell-secret"
 
 
 class TestSanitizeToolName:

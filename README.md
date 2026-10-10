@@ -985,12 +985,20 @@ agent gets its tools automatically.
 Notes:
 
 - `command`/`args` servers run over stdio; `url` servers use streamable HTTP.
-- `${VAR}` in `env` values and `headers` is expanded from your environment,
-  so secrets stay in `.env` or your shell.
+- `${VAR}` in `env` values and `headers` is expanded from `.env` in the working
+  directory and your shell, with shell values taking precedence.
 - Tools are exposed to the agent as `<server>_<tool>` (e.g. `github_create_issue`).
 - A server that fails to start is logged and skipped — MohaMind still boots.
 - Set `"disabled": true` to keep a server configured but off, and
   `MCP_SERVERS_CONFIG` in `.env` to move the config file elsewhere.
+
+The example also includes `zai-vision`, `zai-web-search`, `zai-web-reader`, and
+`zai-zread`. Keep those entries to enable Z.ai's vision, web search, page reading,
+and repository tools with your existing `ZAI_API_KEY` in `.env`. Vision maps it
+to `Z_AI_API_KEY` and sets `Z_AI_MODE=ZAI`; the HTTP servers use Bearer authentication.
+The Vision command uses `npx` to download a dedicated Node 22 runtime alongside
+`@z_ai/mcp-server@latest`. This requires npm and network access on first startup.
+Remove any example servers you do not use before starting MohaMind.
 
 ## Minimal Configuration
 

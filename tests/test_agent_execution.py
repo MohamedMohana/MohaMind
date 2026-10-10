@@ -347,3 +347,71 @@ async def test_weekly_review_blocks_writes_and_preserves_mixed_response_order(ex
     assert [result["tool_call_id"] for result in results] == [call.id for call in calls]
     assert results[1]["content"] == "Active tasks"
     assert all("not executed" in results[index]["content"] for index in (0, 2, 3))
+
+
+LEAKED_REVIEW = (
+    "<tool_call>social_get_neglected</tool_call>"
+    "<tool_call>social_get_upcoming_birthdays<arg_key>days_ahead</arg_key>"
+    "<arg_value>30</arg_value></tool_call>"
+    "<tool_call>family_get_upcoming<arg_key>days_ahead</arg_key>"
+    "<arg_value>14</arg_value></tool_call>"
+)
+
+
+async def test_weekly_review_recovers_leaked_markup_with_structured_read_tools(execution_agent):
+    agent, _ = execution_agent
+    readers = {}
+    calls = []
+    for name, arguments in (
+        ("social_get_neglected", "{}"),
+        ("social_get_upcoming_birthdays", '{"days_ahead":30}'),
+        ("family_get_upcoming", '{"days_ahead":14}'),
+    ):
+        readers[name] = AsyncMock(return_value=f"Data for {name}")
+        agent.register_tool(name, readers[name])
+        calls.append(tool_call(arguments, call_id=name, name=name))
+    agent._request_completion_with_fallback = AsyncMock(
+        side_effect=[response(content=LEAKED_REVIEW), response(calls=calls), response(content="مراجعة مكتملة")]
+    )
+
+    assert await agent.generate_weekly_review() == "مراجعة مكتملة"
+    readers["social_get_neglected"].assert_awaited_once_with()
+    readers["social_get_upcoming_birthdays"].assert_awaited_once_with(days_ahead=30)
+    readers["family_get_upcoming"].assert_awaited_once_with(days_ahead=14)
+    first_request = agent._request_completion_with_fallback.call_args_list[0].kwargs
+    assert set(readers) <= {tool["function"]["name"] for tool in first_request["tools"]}
+    assert "archive_task" not in {tool["function"]["name"] for tool in first_request["tools"]}
+
+
+@pytest.mark.parametrize("after_tools", [False, True])
+async def test_weekly_review_never_returns_persistent_tool_markup(execution_agent, after_tools):
+    agent, _ = execution_agent
+    replies = [response(calls=[tool_call(name="list_tasks")])] if after_tools else []
+    replies.extend([response(content=LEAKED_REVIEW), response(content=LEAKED_REVIEW)])
+    agent._request_completion_with_fallback = AsyncMock(side_effect=replies)
+
+    result = await agent.generate_weekly_review()
+
+    assert result
+    assert "<tool_call>" not in result
+    assert "social_get_neglected" not in result
+    assert agent._request_completion_with_fallback.await_count == len(replies)
+
+
+async def test_final_summary_retries_markup_without_executing_more_tools(execution_agent):
+    agent, _ = execution_agent
+    reader = AsyncMock(return_value="Available task data")
+    agent.register_tool("list_tasks", reader)
+    agent._request_completion_with_fallback = AsyncMock(
+        side_effect=[
+            response(calls=[tool_call(name="list_tasks")]),
+            response(content=LEAKED_REVIEW),
+            response(content="Review based on available tasks"),
+        ]
+    )
+
+    assert await agent.generate_weekly_review() == "Review based on available tasks"
+    reader.assert_awaited_once()
+    last_request = agent._request_completion_with_fallback.call_args.kwargs
+    assert "tools" not in last_request
+    assert "No more tools are available" in last_request["messages"][-1]["content"]

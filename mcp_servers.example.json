@@ -1,5 +1,25 @@
 {
   "mcpServers": {
+    "zai-vision": {
+      "command": "npx",
+      "args": ["-y", "--package=node@22", "--package=@z_ai/mcp-server@latest", "zai-mcp-server"],
+      "env": {
+        "Z_AI_API_KEY": "${ZAI_API_KEY}",
+        "Z_AI_MODE": "ZAI"
+      }
+    },
+    "zai-web-search": {
+      "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
+      "headers": {"Authorization": "Bearer ${ZAI_API_KEY}"}
+    },
+    "zai-web-reader": {
+      "url": "https://api.z.ai/api/mcp/web_reader/mcp",
+      "headers": {"Authorization": "Bearer ${ZAI_API_KEY}"}
+    },
+    "zai-zread": {
+      "url": "https://api.z.ai/api/mcp/zread/mcp",
+      "headers": {"Authorization": "Bearer ${ZAI_API_KEY}"}
+    },
     "fetch": {
       "command": "uvx",
       "args": ["mcp-server-fetch"]
