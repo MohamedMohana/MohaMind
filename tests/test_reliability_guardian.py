@@ -98,7 +98,7 @@ class TestSummarySelfHealing:
 
     @pytest.mark.asyncio
     async def test_run_heals_stale_summaries_instead_of_warning(self, tmp_memory):
-        summarizer = self._make_stale_summaries(tmp_memory, ["reminders", "energy_log"])
+        summarizer = self._make_stale_summaries(tmp_memory, ["tasks", "reminders", "energy_log"])
         guardian = ReliabilityGuardian(tmp_memory, _make_mock_bot(), summarizer=summarizer)
 
         report = await guardian.run()
@@ -106,9 +106,27 @@ class TestSummarySelfHealing:
         assert not any("Summary cache is stale" in item for item in report.warnings)
         assert any("Refreshed stale summaries" in item for item in report.info)
         healed = next(item for item in report.info if "Refreshed stale summaries" in item)
-        assert "reminders" in healed and "energy_log" in healed
+        assert "tasks" in healed and "reminders" in healed and "energy_log" in healed
         # The caches now match their sources again.
         assert guardian._stale_summary_categories() == []
+
+    @pytest.mark.asyncio
+    async def test_task_history_changes_do_not_trigger_stale_warning(self, tmp_memory):
+        from moha_mind.agent.memory_summarizer import MemorySummarizer
+
+        tmp_memory.write("tasks", "# Tasks\n\n## Active\n- [ ] Current task\n\n## Completed\n- [x] Old task\n")
+        summarizer = MemorySummarizer(tmp_memory)
+        await summarizer.refresh_async("tasks")
+        tmp_memory.append("tasks", "- [x] Another completed task\n")
+        guardian = ReliabilityGuardian(tmp_memory, summarizer=summarizer)
+
+        assert guardian._stale_summary_categories() == []
+        assert not any("Summary cache is stale: tasks" in item for item in guardian.scan().warnings)
+
+        tmp_memory.write("tasks", tmp_memory.read("tasks").replace("Current task", "Updated task"))
+
+        assert guardian._stale_summary_categories() == ["tasks"]
+        assert "Summary cache is stale: tasks" in guardian.scan().warnings
 
     @pytest.mark.asyncio
     async def test_run_without_summarizer_still_warns(self, tmp_memory):

@@ -6,6 +6,7 @@ local .env or exported keys.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from moha_mind.config import LLM_PROVIDERS, Settings
 
@@ -24,6 +25,24 @@ def make_settings(monkeypatch):
 
 
 class TestSettings:
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            ("agent_max_tool_rounds", 0),
+            ("agent_max_tool_rounds", 101),
+            ("agent_max_tool_calls", 0),
+            ("agent_max_tool_calls", 501),
+            ("agent_tool_timeout_seconds", 0),
+            ("agent_tool_timeout_seconds", float("nan")),
+            ("agent_tool_timeout_seconds", float("inf")),
+            ("agent_max_tool_result_chars", 127),
+            ("agent_max_tool_result_chars", 1000001),
+        ],
+    )
+    def test_invalid_execution_limits(self, make_settings, name, value):
+        with pytest.raises(ValidationError):
+            make_settings(**{name: value})
+
     def test_default_values(self, make_settings):
         s = make_settings()
         assert s.primary_llm == "zai"

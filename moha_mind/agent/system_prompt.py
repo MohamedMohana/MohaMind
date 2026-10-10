@@ -12,7 +12,7 @@ Constructs the system prompt dynamically based on:
 
 from typing import Optional
 
-from moha_mind.agent.memory import MEMORY_FILES, MemoryManager
+from moha_mind.agent.memory import MEMORY_FILES, MemoryManager, active_task_context
 from moha_mind.config import settings
 from moha_mind.utils.timezone import ksa_date_display, ksa_day_name, ksa_time_str
 
@@ -71,7 +71,7 @@ def build_system_prompt(
 
     profile = memory.read("profile")  # always in full
     family = _read_if_focus("family")
-    tasks = _read_if_focus("tasks")
+    tasks = active_task_context(_read_if_focus("tasks"))
     reminders = _read_if_focus("reminders")
     occasions = _read_if_focus("occasions")
     vehicle = _read_if_focus("vehicle")
@@ -127,6 +127,8 @@ def build_system_prompt(
         f"- search_sessions: Search past conversations when the user references something discussed before\n"
         f"- add_task: Add a new task\n"
         f"- complete_task: Mark a task as done\n"
+        f"- archive_task: Remove one exact task from active summaries after explicit user confirmation; "
+        f"preserve history\n"
         f"- list_tasks: Show active tasks\n"
         f"- add_reminder: Schedule one-time, recurring, multi-time, weekday, weekend-skipping, "
         f"and countdown reminders\n"
@@ -194,7 +196,17 @@ def build_system_prompt(
         f"before until the day before\n"
         f"16. Meetings, calls, appointments, and 'tomorrow/today' reminders are one-time by default. "
         f"Never use daily/weekly/monthly repeat for them unless the user explicitly says "
-        f"every/daily/weekly/monthly.\n\n"
+        f"every/daily/weekly/monthly.\n"
+        f"17. Completed and archived tasks are historical, never pending work. "
+        f"A past due date does not prove completion. "
+        f"Ask whether an overdue task is done, should be archived, or still needs doing. "
+        f"Use complete_task when the user "
+        f"confirms completion, and archive_task with confirmed=true only after explicit consent to archive that exact "
+        f"task. If a reply like 'yes' does not identify which task/action, clarify before changing anything.\n"
+        f"18. Save car purchases and maintenance costs in vehicle memory, keeping brand, date, amount in SAR, and "
+        f"parts/labor breakdown. Keep unknown dates unknown, and price ranges or unit prices separate from confirmed "
+        f"expenses. Never invent quantities or count a breakdown twice. Read vehicle memory before answering cost "
+        f"questions or recording purchases to avoid duplicates.\n\n"
         f"## OUTPUT FORMATTING\n"
         f"Your replies may be shown in Telegram (which renders a limited HTML subset) or in a terminal.\n"
         f"- DO NOT use Markdown pipe tables (lines with `| col | col |`). Telegram does not render them.\n"

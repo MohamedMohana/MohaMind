@@ -5,6 +5,7 @@ Supports z.ai (Zhipu GLM), OpenAI, and automatic fallback.
 All providers use the OpenAI-compatible API format.
 """
 
+import asyncio
 import inspect
 import json
 import re
@@ -31,6 +32,7 @@ from moha_mind.utils.arabic_support import (
 )
 from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
+from moha_mind.utils.timezone import ksa_today_str
 
 
 class MohaMindAgent:
@@ -432,6 +434,45 @@ class MohaMindAgent:
 
         return schemas
 
+    async def _execute_model_tool_call(self, tool_call: Any) -> str:
+        tool_name = tool_call.function.name
+        log.info("Tool call: %s", tool_name)
+        try:
+            arguments = json.loads(tool_call.function.arguments)
+        except (json.JSONDecodeError, TypeError):
+            return "Error: tool arguments must be valid JSON. The tool was not executed."
+        if not isinstance(arguments, dict):
+            return "Error: tool arguments must be a JSON object. The tool was not executed."
+
+        try:
+            result = await asyncio.wait_for(
+                self.handle_tool_call(tool_name, arguments),
+                timeout=settings.agent_tool_timeout_seconds,
+            )
+        except TimeoutError:
+            log.warning("Tool timed out: %s", tool_name)
+            result = (
+                "Error: tool timed out; outcome is unknown. It may have completed externally. "
+                "Check state before retrying a change."
+            )
+
+        result = str(result)
+        limit = settings.agent_max_tool_result_chars
+        if len(result) > limit:
+            suffix = "\n[Tool result truncated; request a narrower query for more detail.]"
+            result = result[: limit - len(suffix)] + suffix
+        return result
+
+    async def _execute_tool_batch(self, tool_calls: list[Any], remaining_calls: int) -> list[dict]:
+        messages = []
+        for index, tool_call in enumerate(tool_calls):
+            if index >= remaining_calls:
+                result = "Error: tool-call limit reached. This tool was not executed."
+            else:
+                result = await self._execute_model_tool_call(tool_call)
+            messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
+        return messages
+
     async def handle_tool_call(self, tool_name: str, arguments: dict) -> str:
         """Handle a tool call from the LLM."""
         if tool_name in self._tool_handlers:
@@ -818,6 +859,36 @@ class MohaMindAgent:
         return True
 
     async def _chat_completion_with_fallback(self, **kwargs):
+        request = dict(kwargs)
+        request["messages"] = list(kwargs["messages"])
+        tools_enabled = bool(request.get("tools")) and request.get("tool_choice") != "none"
+        for attempt in range(2):
+            response = await self._request_completion_with_fallback(**request)
+            message = response.choices[0].message
+            markup = re.search(r"<\s*/?\s*(?:tool_call|arg_key|arg_value)\b", message.content or "", re.IGNORECASE)
+            if not markup and (tools_enabled or not message.tool_calls):
+                return response
+            if attempt:
+                raise ValueError("Model returned tool markup instead of a valid response")
+            log.warning("Model returned invalid tool output; requesting a corrected response")
+            request["messages"].append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Your response used an invalid tool-call format. Never output tool_call, arg_key, "
+                        "or arg_value XML tags. "
+                        + (
+                            "Use only the provided structured function tools if you need more information; "
+                            "otherwise provide the finished answer in the requested language."
+                            if tools_enabled
+                            else "No more tools are available. Write the finished answer in the requested language "
+                            "using only the information already available. Clearly state any missing information."
+                        )
+                    ),
+                }
+            )
+
+    async def _request_completion_with_fallback(self, **kwargs):
         try:
             return await self.client.chat.completions.create(model=self.model, **kwargs)
         except Exception as e:
@@ -851,7 +922,8 @@ class MohaMindAgent:
         conversation.append({"role": "user", "content": message})
         self.session_store.append_message(chat_id, "user", message)
 
-        max_tool_rounds = 10
+        max_tool_rounds = settings.agent_max_tool_rounds
+        remaining_calls = settings.agent_max_tool_calls
         final_response = ""
 
         for round_num in range(max_tool_rounds):
@@ -873,23 +945,10 @@ class MohaMindAgent:
             if assistant_message.tool_calls:
                 conversation.append(assistant_message.model_dump())
 
-                for tool_call in assistant_message.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        func_args = {}
-
-                    log.info("Tool call: %s", func_name)
-                    tool_result = await self.handle_tool_call(func_name, func_args)
-
-                    conversation.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": tool_result,
-                        }
-                    )
+                conversation.extend(await self._execute_tool_batch(assistant_message.tool_calls, remaining_calls))
+                remaining_calls -= len(assistant_message.tool_calls)
+                if remaining_calls <= 0:
+                    break
             else:
                 final_response = assistant_message.content or ""
                 conversation.append({"role": "assistant", "content": final_response})
@@ -898,7 +957,7 @@ class MohaMindAgent:
         if not final_response:
             # Tool budget exhausted without a user-facing reply. Force one by
             # disabling tools so the model must summarize what it already did.
-            log.warning(f"Tool-call budget exhausted after {max_tool_rounds} rounds; forcing final reply.")
+            log.warning("No final reply after %s rounds; forcing final reply without tools.", round_num + 1)
             try:
                 forced_messages = self._build_llm_messages(system_prompt, conversation)
                 forced_messages.append(
@@ -1008,7 +1067,7 @@ class MohaMindAgent:
         return reply
 
     async def generate_briefing(self) -> str:
-        """Generate the morning briefing without tool calls - just a direct LLM response."""
+        """Generate the morning briefing with one bounded batch of tool calls."""
         system_prompt = build_system_prompt(self.memory, extra_context=t("briefing.mode"))
         briefing_request = t("briefing.prompt")
 
@@ -1031,25 +1090,12 @@ class MohaMindAgent:
                     {"role": "user", "content": briefing_request},
                     choice.message.model_dump(),
                 ]
-                for tool_call in choice.message.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        func_args = {}
-                    tool_result = await self.handle_tool_call(func_name, func_args)
-                    conversation.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": tool_result,
-                        }
-                    )
+                conversation.extend(
+                    await self._execute_tool_batch(choice.message.tool_calls, settings.agent_max_tool_calls)
+                )
 
                 response = await self._chat_completion_with_fallback(
                     messages=conversation,
-                    tools=self.get_tools_schema(),
-                    tool_choice="auto",
                     max_tokens=2000,
                     temperature=0.7,
                 )
@@ -1065,6 +1111,30 @@ class MohaMindAgent:
         """Generate the weekly life review."""
         system_prompt = build_system_prompt(self.memory, extra_context=t("review.mode"))
         review_request = t("review.prompt")
+        overdue = [
+            task
+            for task in self.memory.get_task_section()
+            if not task["done"] and task["due"] and task["due"] < ksa_today_str()
+        ]
+        cleanup = ""
+        if overdue:
+            cleanup = (
+                "\n\n"
+                + t("review.cleanup")
+                + "\n"
+                + "\n".join(f"- {task['text'].strip()} ({task['due']})" for task in overdue)
+            )
+        read_tools = {
+            "search_memory",
+            "list_tasks",
+            "get_expiring",
+            "get_calendar_events",
+            "get_ms_calendar_events",
+            "social_get_neglected",
+            "social_get_upcoming_birthdays",
+            "family_get_upcoming",
+        }
+        review_tools = [tool for tool in self.get_tools_schema() if tool["function"]["name"] in read_tools]
 
         try:
             response = await self._chat_completion_with_fallback(
@@ -1072,7 +1142,7 @@ class MohaMindAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": review_request},
                 ],
-                tools=self.get_tools_schema(),
+                tools=review_tools,
                 tool_choice="auto",
                 max_tokens=2500,
                 temperature=0.7,
@@ -1085,31 +1155,31 @@ class MohaMindAgent:
                     {"role": "user", "content": review_request},
                     choice.message.model_dump(),
                 ]
-                for tool_call in choice.message.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        func_args = {}
-                    tool_result = await self.handle_tool_call(func_name, func_args)
-                    conversation.append(
+                results = await self._execute_tool_batch(
+                    [call for call in choice.message.tool_calls if call.function.name in read_tools],
+                    settings.agent_max_tool_calls,
+                )
+                results_by_id = {result["tool_call_id"]: result for result in results}
+                conversation.extend(
+                    results_by_id.get(
+                        call.id,
                         {
                             "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": tool_result,
-                        }
+                            "tool_call_id": call.id,
+                            "content": "Error: tool not executed. Weekly reviews cannot modify saved data.",
+                        },
                     )
+                    for call in choice.message.tool_calls
+                )
 
                 response = await self._chat_completion_with_fallback(
                     messages=conversation,
-                    tools=self.get_tools_schema(),
-                    tool_choice="auto",
                     max_tokens=2500,
                     temperature=0.7,
                 )
-                return response.choices[0].message.content or ""
+                return (response.choices[0].message.content or "") + cleanup
 
-            return choice.message.content or ""
+            return (choice.message.content or "") + cleanup
         except Exception as e:
             log.error(f"Weekly review generation failed: {e}")
             return t("review.error")

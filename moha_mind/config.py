@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from moha_mind.utils.configuration import is_configured_key
+
 LLM_PROVIDERS = {
     "zai": {
         "base_url": "https://api.z.ai/api/paas/v4/",
@@ -37,7 +39,17 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = ""
 
+    @field_validator("zai_api_key", "openai_api_key")
+    @classmethod
+    def validate_api_key(cls, value: str) -> str:
+        return value.strip() if is_configured_key(value) else ""
+
     primary_llm: LLMProvider = "zai"
+
+    agent_max_tool_rounds: int = Field(default=10, ge=1, le=100)
+    agent_max_tool_calls: int = Field(default=40, ge=1, le=500)
+    agent_tool_timeout_seconds: float = Field(default=60, gt=0, le=3600, allow_inf_nan=False)
+    agent_max_tool_result_chars: int = Field(default=16000, ge=128, le=1000000)
 
     # How the secondary LLM is used:
     #   solo     -> no secondary at all
@@ -62,6 +74,9 @@ class Settings(BaseSettings):
     # in addition to TELEGRAM_CHAT_ID. Everyone else is refused.
     telegram_allowed_user_ids: str = ""
     telegram_allow_destructive: bool = True
+
+    whatsapp_session_dir: str = "./credentials/whatsapp"
+    whatsapp_node_path: str = "node"
 
     voice_enabled: bool = False
     voice_model: str = "small"

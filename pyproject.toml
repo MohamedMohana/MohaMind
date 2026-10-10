@@ -52,6 +52,9 @@ target-version = "py312"
 [tool.setuptools.packages.find]
 include = ["moha_mind*"]
 
+[tool.setuptools.package-data]
+"moha_mind.whatsapp_bot" = ["bridge/*.mjs", "bridge/package.json", "bridge/package-lock.json"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 
