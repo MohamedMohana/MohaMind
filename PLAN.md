@@ -1,6 +1,6 @@
 # MohaMind - Development Plan
 
-## Project Status: v0.2.0 - Local Speech-to-Text and Telegram Privacy Improvements
+## Project Status: v0.3.0 - WhatsApp Self-Chat, Easier Onboarding, and Bounded Tool Execution
 
 ### Architecture Overview
 

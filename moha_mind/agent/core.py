@@ -30,6 +30,7 @@ from moha_mind.utils.arabic_support import (
     detect_language,
     normalize_colloquial_arabic,
 )
+from moha_mind.utils.async_work import start_daemon_worker
 from moha_mind.utils.i18n import t
 from moha_mind.utils.logging_config import log
 from moha_mind.utils.timezone import ksa_today_str
@@ -64,6 +65,8 @@ class MohaMindAgent:
 
         self.embedder = build_embedder()
         self.semantic_index = SemanticIndex(self.memory, self.embedder)
+        self._memory_search_lock = asyncio.Lock()
+        self._memory_search_future: asyncio.Future[str] | None = None
         if self.embedder:
             log.info(f"Semantic memory enabled: {self.embedder.provider} ({self.embedder.model})")
 
@@ -493,29 +496,19 @@ class MohaMindAgent:
                     return f"Saved to {arguments['category']}{extra}"
 
                 case "search_memory":
-                    return self._hybrid_search_memory(
+                    return await self._run_memory_search(
+                        self._hybrid_search_memory,
                         arguments["query"],
                         arguments.get("categories"),
                     )
 
                 case "semantic_search_memory":
-                    if not self.semantic_index.is_available():
-                        return "Semantic search is not enabled. (Set EMBEDDING_BACKEND to 'openai' or 'local'.)"
-                    try:
-                        self.semantic_index.sync()
-                    except Exception as exc:
-                        log.debug(f"Semantic sync during search failed: {exc}")
-                    semantic = self.semantic_index.search(
+                    return await self._run_memory_search(
+                        self._semantic_search_memory,
                         arguments["query"],
-                        top_k=int(arguments.get("top_k") or settings.semantic_top_k or 5),
-                        categories=arguments.get("categories"),
+                        int(arguments.get("top_k") or settings.semantic_top_k or 5),
+                        arguments.get("categories"),
                     )
-                    if not semantic:
-                        return "No semantic matches."
-                    lines = []
-                    for r in semantic:
-                        lines.append(f"[{r.category}:{r.line_number} · {r.score:.2f}] {r.chunk}")
-                    return "\n".join(lines)
 
                 case "search_sessions":
                     results = self.session_store.search_messages(
@@ -578,6 +571,35 @@ class MohaMindAgent:
         except Exception as e:
             log.error(f"Tool '{tool_name}' execution failed: {e}")
             return f"Error: {str(e)}"
+
+    async def _run_memory_search(self, handler: Callable[..., str], *args: Any) -> str:
+        await self._memory_search_lock.acquire()
+        try:
+            worker = start_daemon_worker(handler, *args)
+        except BaseException:
+            self._memory_search_lock.release()
+            raise
+        self._memory_search_future = worker
+        worker.add_done_callback(self._finish_memory_search)
+        return await asyncio.shield(worker)
+
+    def _finish_memory_search(self, worker: asyncio.Future[str]) -> None:
+        self._memory_search_future = None
+        self._memory_search_lock.release()
+        if not worker.cancelled():
+            worker.exception()
+
+    def _semantic_search_memory(self, query: str, top_k: int, categories: list[str] | None) -> str:
+        if not self.semantic_index.is_available():
+            return "Semantic search is not enabled. (Set EMBEDDING_BACKEND to 'openai' or 'local'.)"
+        try:
+            self.semantic_index.sync()
+        except Exception as exc:
+            log.debug(f"Semantic sync during search failed: {exc}")
+        semantic = self.semantic_index.search(query, top_k=top_k, categories=categories)
+        if not semantic:
+            return "No semantic matches."
+        return "\n".join(f"[{r.category}:{r.line_number} · {r.score:.2f}] {r.chunk}" for r in semantic)
 
     def _hybrid_search_memory(self, query: str, categories: list[str] | None) -> str:
         """FTS/substring results first, semantic results merged in below."""
